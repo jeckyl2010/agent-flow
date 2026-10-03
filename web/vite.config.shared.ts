@@ -18,15 +18,15 @@ export function createBuildConfig(target: BuildTarget): UserConfig {
     ],
     resolve: {
       alias: {
-        '@': resolve(__dirname),
+        '@': resolve(import.meta.dirname),
       },
     },
     publicDir: false,
     build: {
-      outDir: resolve(__dirname, target.outDir),
+      outDir: resolve(import.meta.dirname, target.outDir),
       emptyOutDir: true,
       lib: {
-        entry: resolve(__dirname, target.entry),
+        entry: resolve(import.meta.dirname, target.entry),
         formats: ['iife'],
         name: target.name,
         fileName: () => 'index',

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
-import { createBuildConfig } from './vite.config.shared'
-import { DEFAULT_RELAY_PORT } from '../extension/src/constants'
+import { createBuildConfig } from './vite.config.shared.ts'
+import { DEFAULT_RELAY_PORT } from '../extension/src/constants.ts'
 
 export default defineConfig(createBuildConfig({
   outDir: '../extension/dist/webview',
