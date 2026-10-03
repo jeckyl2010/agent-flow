@@ -5,7 +5,7 @@ import * as os from 'os'
 import { ClaudeHookEntry } from './protocol'
 import { HOOK_URL_PREFIX, HOOK_TIMEOUT_S } from './constants'
 import {
-  HOOK_COMMAND_MARKER,
+  HOOK_COMMAND_MARKER, LEGACY_HOOK_COMMAND_MARKER,
   getHookCommand, ensureHookScript,
   addWorkspaceToManifest,
 } from './discovery'
@@ -29,11 +29,20 @@ function readGlobalSettings(): Record<string, unknown> | null {
 /** Check whether a single hook entry belongs to Agent Flow */
 function isAgentFlowHook(entry: ClaudeHookEntry): boolean {
   return !!entry.hooks?.some(h =>
-    // Normalize backslashes to forward slashes so Windows paths
-    // (e.g. "C:\\Users\\...\\agent-flow\\hook.js") match HOOK_COMMAND_MARKER.
-    h.command?.replace(/\\/g, '/').includes(HOOK_COMMAND_MARKER) ||
+    runsCurrentScript(h.command) || runsLegacyScript(h.command) ||
     h.url?.startsWith(HOOK_URL_PREFIX),
   )
+}
+
+// Normalize backslashes to forward slashes so Windows paths
+// (e.g. "C:\\Users\\...\\agent-flow\\hook.mjs") match the markers.
+function runsCurrentScript(command?: string): boolean {
+  return !!command?.replace(/\\/g, '/').includes(HOOK_COMMAND_MARKER)
+}
+
+/** Runs the hook.js from before v4, which Node loads as an ES module under a "type": "module" home */
+function runsLegacyScript(command?: string): boolean {
+  return !!command?.replace(/\\/g, '/').includes(LEGACY_HOOK_COMMAND_MARKER)
 }
 
 // ─── Detection ────────────────────────────────────────────────────────────────
@@ -118,9 +127,10 @@ export async function configureClaudeHooks(): Promise<void> {
 
 // ─── Migration ────────────────────────────────────────────────────────────────
 
-/** Replace legacy HTTP hooks with command hooks. Called once on activation.
+/** Replace legacy hooks with ones running the current script: HTTP hooks, and command hooks
+ *  running the hook.js from before v4. Called once on activation.
  *  Caller must call ensureHookScript() first. */
-export function migrateHttpHooks(): void {
+export function migrateLegacyHooks(): void {
   const pathsToCheck: string[] = [GLOBAL_SETTINGS_PATH]
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   if (workspaceFolder) {
@@ -151,6 +161,9 @@ export function migrateHttpHooks(): void {
               h.command = hookCommand
               if (h.timeout === undefined) { h.timeout = HOOK_TIMEOUT_S }
               changed = true
+            } else if (runsLegacyScript(h.command)) {
+              h.command = hookCommand
+              changed = true
             }
           }
         }
@@ -158,7 +171,7 @@ export function migrateHttpHooks(): void {
 
       if (changed) {
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n')
-        log.info(`Migrated HTTP hooks → command hooks in ${settingsPath}`)
+        log.info(`Migrated legacy hooks → ${HOOK_COMMAND_MARKER} in ${settingsPath}`)
         // Ensure migrated project-level hooks are tracked in the manifest
         if (workspaceFolder && settingsPath.includes(workspaceFolder)) {
           addWorkspaceToManifest(workspaceFolder)

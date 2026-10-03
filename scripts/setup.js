@@ -7,7 +7,7 @@
  * to launch the extension in the debugger first.
  *
  * What it does:
- *   1. Installs the hook forwarding script at ~/.claude/agent-flow/hook.js
+ *   1. Installs the hook forwarding script at ~/.claude/agent-flow/hook.mjs
  *   2. Configures Claude Code hooks in ~/.claude/settings.json
  */
 'use strict'
@@ -18,13 +18,17 @@ const os = require('os')
 const { execFileSync } = require('child_process')
 
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow')
-const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.js')
+// .mjs: Node loads it as an ES module whatever package.json lies above it, such as a
+// "type": "module" one in the home directory, which made the old hook.js fail.
+const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.mjs')
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json')
 
 const HOOK_TIMEOUT_S = 2
 const HOOK_SAFETY_MARGIN_MS = 500
 const HOOK_FORWARD_TIMEOUT_MS = 1000
-const HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
+const HOOK_COMMAND_MARKER = 'agent-flow/hook.mjs'
+// Hooks from before v4 run hook.js: still ours, and replaced when setup runs
+const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
 
 // ─── Resolve node path ──────────────────────────────────────────────────────
 
@@ -43,15 +47,15 @@ function resolveNodePath() {
 
 function getHookScriptContent() {
   return `#!/usr/bin/env node
-// Agent Flow hook forwarder v3 — installed by the Agent Flow setup script.
+// Agent Flow hook forwarder v4 — installed by the Agent Flow setup script.
 // Claude Code invokes this as a command hook. It reads a discovery directory to
 // find live extension instances, checks their PIDs, and forwards the event via
 // HTTP POST. Dead instances are cleaned up automatically.
-'use strict';
-const fs = require('fs');
-const path = require('path');
-const http = require('http');
-const os = require('os');
+// v4: an ES module, hook.mjs: Node loads it as one whatever package.json lies above it.
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import os from 'node:os';
 
 setTimeout(() => process.exit(0), ${HOOK_TIMEOUT_S * 1000 - HOOK_SAFETY_MARGIN_MS});
 
@@ -154,8 +158,14 @@ function ensureHookScript() {
 function isAgentFlowHook(entry) {
   return entry.hooks?.some(h =>
     h.command?.includes(HOOK_COMMAND_MARKER) ||
+    h.command?.includes(LEGACY_HOOK_COMMAND_MARKER) ||
     h.url?.startsWith('http://127.0.0.1:'),
   )
+}
+
+/** Ours, and running the current script: not a legacy hook.js or HTTP hook, which setup replaces. */
+function isCurrentAgentFlowHook(entry) {
+  return !!entry.hooks?.some(h => h.command?.includes(HOOK_COMMAND_MARKER))
 }
 
 function configureHooks() {
@@ -205,9 +215,10 @@ function isAlreadySetup() {
     const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'))
     const hooks = settings.hooks
     if (!hooks || typeof hooks !== 'object') return false
+    // Hooks that still run the old hook.js count as not set up, so they're replaced
     return Object.values(hooks).some(entries => {
       if (!Array.isArray(entries)) return false
-      return entries.some(entry => isAgentFlowHook(entry))
+      return entries.some(entry => isCurrentAgentFlowHook(entry))
     })
   } catch {
     return false

@@ -7,7 +7,7 @@
  *
  * Discovery dir: ~/.claude/agent-flow/
  * Discovery file: {workspace-hash}-{pid}.json
- * Hook script:   ~/.claude/agent-flow/hook.js
+ * Hook script:   ~/.claude/agent-flow/hook.mjs
  */
 
 import * as fs from 'fs'
@@ -21,11 +21,15 @@ import { createLogger } from './logger'
 const log = createLogger('Discovery')
 
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow')
-const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.js')
+// .mjs: Node loads it as an ES module whatever package.json lies above it, such as a
+// "type": "module" one in the home directory, which made the old hook.js fail.
+const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.mjs')
 const WORKSPACES_MANIFEST_PATH = path.join(DISCOVERY_DIR, 'workspaces.json')
 
 /** Identifier substring used to detect our command hooks in settings.json */
-export const HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
+export const HOOK_COMMAND_MARKER = 'agent-flow/hook.mjs'
+/** Hooks from before v4 run hook.js: still ours, and moved to hook.mjs on activation */
+export const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
 
 /** Resolve the absolute path to the `node` binary.
  *  VS Code's extension host runs in Electron, so process.execPath is not node.
@@ -126,7 +130,7 @@ export function ensureHookScript(): void {
     }
   } catch { /* failed to read existing script — rewrite it */ }
   // Atomic write: write to temp file then rename, so a concurrent
-  // `node hook.js` never reads a truncated/empty file during updates.
+  // `node hook.mjs` never reads a truncated/empty file during updates.
   const tmpPath = HOOK_SCRIPT_PATH + `.${process.pid}.tmp`
   fs.writeFileSync(tmpPath, script, { mode: 0o755 })
   fs.renameSync(tmpPath, HOOK_SCRIPT_PATH)
@@ -150,14 +154,14 @@ function getHookScriptContent(): string {
 //
 // v3: containment-based workspace matching (supports subdirectory CWD),
 //     realpathSync normalization (handles symlinks), Windows-safe PID checks.
+// v4: an ES module, hook.mjs: Node loads it as one whatever package.json lies above it.
 //
 // Discovery dir: ~/.claude/agent-flow/
 // Discovery file: {workspace-hash}-{pid}.json  →  { port, pid, workspace }
-'use strict';
-const fs = require('fs');
-const path = require('path');
-const http = require('http');
-const os = require('os');
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import os from 'node:os';
 
 // Hard safety deadline — guarantees exit well before Claude Code's
 // ${HOOK_TIMEOUT_S}s kill timeout (500ms margin). Prevents ANY hanging scenario
