@@ -9,10 +9,13 @@ function setup() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-tel-'))
 }
 
-function makeClient(dir: string) {
+const OPTED_IN = { AGENT_FLOW_TELEMETRY: 'true' }
+
+function makeClient(dir: string, env: NodeJS.ProcessEnv = OPTED_IN) {
   return createTelemetryClient({
     logDir: path.join(dir, 'telemetry'),
     installIdPath: path.join(dir, 'installation-id'),
+    env,
     // Unroutable so tests never hit the real endpoint.
     endpoint: 'http://127.0.0.1:1',
     apiKey: 'test',
@@ -34,8 +37,8 @@ test('hardcoded constants are present', () => {
   assert.match(TELEMETRY_PUBLISHABLE_KEY, /^sb_publishable_/)
 })
 
-test('isTelemetryEnabled: default (no env) is true', () => {
-  assert.equal(isTelemetryEnabled({}), true)
+test('isTelemetryEnabled: default (no env) is false', () => {
+  assert.equal(isTelemetryEnabled({}), false)
 })
 
 test('isTelemetryEnabled: AGENT_FLOW_TELEMETRY=false disables', () => {
@@ -45,9 +48,10 @@ test('isTelemetryEnabled: AGENT_FLOW_TELEMETRY=false disables', () => {
   assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: '' }), false)
 })
 
-test('isTelemetryEnabled: AGENT_FLOW_TELEMETRY=true stays enabled', () => {
+test('isTelemetryEnabled: AGENT_FLOW_TELEMETRY=true opts in', () => {
   assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: 'true' }), true)
   assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: '1' }), true)
+  assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: 'enabled' }), true)
 })
 
 test('isTelemetryEnabled: DO_NOT_TRACK=1 disables', () => {
@@ -62,8 +66,6 @@ test('isTelemetryEnabled: DO_NOT_TRACK wins even when AGENT_FLOW_TELEMETRY=true'
 test('emit appends to JSONL when enabled', async () => {
   const dir = setup()
   const client = makeClient(dir)
-  delete process.env.AGENT_FLOW_TELEMETRY
-  delete process.env.DO_NOT_TRACK
   await client.init()
   client.emit(baseEvent())
   await client.dispose()
@@ -77,41 +79,25 @@ test('emit appends to JSONL when enabled', async () => {
   assert.match(e.ts, /^\d{4}-\d{2}-\d{2}T/)
 })
 
-test('disabled via AGENT_FLOW_TELEMETRY=false writes nothing to disk', async () => {
-  const dir = setup()
-  process.env.AGENT_FLOW_TELEMETRY = 'false'
-  try {
-    const client = makeClient(dir)
+for (const [why, env] of [
+  ['by default', {}],
+  ['via AGENT_FLOW_TELEMETRY=false', { AGENT_FLOW_TELEMETRY: 'false' }],
+  ['via DO_NOT_TRACK=1', { ...OPTED_IN, DO_NOT_TRACK: '1' }],
+] as const) {
+  test(`disabled ${why} writes nothing to disk`, async () => {
+    const dir = setup()
+    const client = makeClient(dir, env)
     await client.init()
     client.emit(baseEvent())
     await client.dispose()
     // No events log AND no install-id file — disabled means zero disk footprint.
     assert.equal(fs.existsSync(path.join(dir, 'telemetry', 'events.jsonl')), false)
     assert.equal(fs.existsSync(path.join(dir, 'installation-id')), false)
-  } finally {
-    delete process.env.AGENT_FLOW_TELEMETRY
-  }
-})
-
-test('disabled via DO_NOT_TRACK=1 writes nothing to disk', async () => {
-  const dir = setup()
-  process.env.DO_NOT_TRACK = '1'
-  try {
-    const client = makeClient(dir)
-    await client.init()
-    client.emit(baseEvent())
-    await client.dispose()
-    assert.equal(fs.existsSync(path.join(dir, 'telemetry', 'events.jsonl')), false)
-    assert.equal(fs.existsSync(path.join(dir, 'installation-id')), false)
-  } finally {
-    delete process.env.DO_NOT_TRACK
-  }
-})
+  })
+}
 
 test('install-id persists across init calls', async () => {
   const dir = setup()
-  delete process.env.AGENT_FLOW_TELEMETRY
-  delete process.env.DO_NOT_TRACK
   const client1 = makeClient(dir)
   await client1.init()
   client1.emit(baseEvent())
@@ -131,8 +117,6 @@ test('install-id persists across init calls', async () => {
 
 test('emit sanitizes session_id', async () => {
   const dir = setup()
-  delete process.env.AGENT_FLOW_TELEMETRY
-  delete process.env.DO_NOT_TRACK
   const client = makeClient(dir)
   await client.init()
   client.emit({ ...baseEvent(), session_id: 'quote"backslash\\newline\n' })

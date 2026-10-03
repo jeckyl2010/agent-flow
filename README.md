@@ -143,15 +143,17 @@ Created by [Simon Patole](https://github.com/patoles), for [CraftMyGame](https:/
 
 ## Privacy & Telemetry
 
-Agent Flow ships **opt-out** anonymous usage telemetry, enabled by default only
-in the published `npx agent-flow-app` binary. `pnpm run dev` and the VS Code
-extension emit nothing. Only aggregate events are sent — session count,
+Agent Flow's anonymous usage telemetry is **opt-in**: nothing is sent, and
+nothing is written to disk, unless you turn it on. Only the published
+`npx agent-flow-app` binary can emit; `pnpm run dev` and the VS Code extension
+never do. When enabled, only aggregate events are sent — session count,
 duration, event count, OS/arch, Agent Flow version, distinct model IDs
 observed, which runtimes were watched, and error class names. Prompts, file
 paths, tool calls, user info, and environment variables are never sent.
 
-- **Turn off:** `export AGENT_FLOW_TELEMETRY=false` or `export DO_NOT_TRACK=1`
-  (disabled installs write zero state to disk — no `~/.agent-flow/` directory)
+- **Turn on:** `export AGENT_FLOW_TELEMETRY=true`. `DO_NOT_TRACK=1` keeps it
+  off regardless (disabled installs write zero state to disk — no
+  `~/.agent-flow/` directory)
 - **Inspect the payload:** `cat ~/.agent-flow/telemetry/events.jsonl`
 - **Full schema + exact fields:** see the v0.8.1 entry in
   [extension/CHANGELOG.md](extension/CHANGELOG.md) or the `serialize()` function
