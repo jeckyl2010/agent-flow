@@ -8,12 +8,16 @@ function extractFilePath(inputData?: Record<string, unknown>, args?: string): st
   return asString(inputData?.file_path) || args?.split(' ')[0] || ''
 }
 
+/** Claude Code's own plumbing, not the agent's work: a subagent handing its answer back */
+const HIDDEN_TOOLS = new Set(['SubagentHandback'])
+
 export function handleToolCallStart(
   payload: Record<string, unknown>,
   currentTime: number,
   state: MutableEventState,
   ctx: ProcessEventContext,
 ): void {
+  if (HIDDEN_TOOLS.has(asString(payload.tool))) return
   const agentName = asString(payload.agent)
   const toolName = asString(payload.tool)
   const args = asString(payload.args)
@@ -101,6 +105,7 @@ export function handleToolCallEnd(
   state: MutableEventState,
   ctx: ProcessEventContext,
 ): void {
+  if (HIDDEN_TOOLS.has(asString(payload.tool))) return
   const agentName = asString(payload.agent)
   const toolName = asString(payload.tool)
   const result = asString(payload.result, 'Done')

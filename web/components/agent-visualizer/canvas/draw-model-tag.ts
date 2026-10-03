@@ -40,7 +40,9 @@ export function drawModelTags(
 ) {
   for (const agent of agents.values()) {
     const tag = agent.modelTag
-    if (!tag || agent.opacity < MIN_VISIBLE_OPACITY || agent.state === 'complete') continue
+    // Drawn on a completed agent too, fading with its node: a short-lived subagent still shows
+    // what it ran on
+    if (!tag || agent.opacity < MIN_VISIBLE_OPACITY) continue
 
     const r = agent.isMain ? NODE.radiusMain : NODE.radiusSub
     const age = simTime - tag.changedAt
@@ -63,7 +65,11 @@ export function drawModelTags(
     ctx.font = `${MODEL_TAG.fontSize}px monospace`
     const textW = ctx.measureText(label).width
     const pipsW = level ? EFFORT_LEVELS.length * MODEL_TAG.pipSpacing + MODEL_TAG.pipGap : 0
-    const chipW = textW + pipsW + MODEL_TAG.padX * 2
+    // The share of the latest request's input the prompt cache served, as the cache ring shows it
+    const hit = agent.spend?.lastCacheHit
+    const cacheText = hit !== undefined ? `${Math.round(hit * 100)}%` : ''
+    const cacheW = cacheText ? ctx.measureText(cacheText).width + MODEL_TAG.cacheGap : 0
+    const chipW = textW + pipsW + cacheW + MODEL_TAG.padX * 2
     const chipH = MODEL_TAG.height
     const chipX = agent.x - chipW / 2
     const chipY = agent.y + r + (agent.tokensUsed > 0 ? MODEL_TAG.yOffsetBelowBar : MODEL_TAG.yOffset)
@@ -104,6 +110,12 @@ export function drawModelTags(
           ctx.stroke()
         }
       }
+    }
+
+    if (cacheText) {
+      ctx.textAlign = 'right'
+      ctx.fillStyle = COLORS.complete + alphaHex(0.8)
+      ctx.fillText(cacheText, chipX + chipW - MODEL_TAG.padX, chipY + chipH / 2 + 0.5)
     }
 
     // A bright sweep crosses the chip while it decodes

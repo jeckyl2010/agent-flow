@@ -276,6 +276,8 @@ export const MODEL_TAG = {
   pipRadius: 2.4,
   pipSpacing: 6.5,
   pipGap: 5,
+  /** Gap before the cache share, the chip's last part */
+  cacheGap: 5,
   /** Seconds the text takes to decode into place, and to fade in when it first appears */
   decodeS: 0.9,
   fadeInS: 0.3,
@@ -294,9 +296,6 @@ export const CACHE_RING = {
   offsetMain: 15,
   offsetSub: 6,
   width: 1.5,
-  /** Distance of the percentage label past the ring, and the angle it sits at (lower left) */
-  labelOffset: 6,
-  labelAngle: Math.PI * 0.8,
 } as const
 
 export const CONTEXT_RING = {

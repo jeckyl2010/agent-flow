@@ -80,17 +80,7 @@ export function drawHeartbeats(
         ctx.strokeStyle = COLORS.complete + alphaHex(0.7)
         ctx.stroke()
       }
-      ctx.font = '6px monospace'
-      ctx.textAlign = 'right'
-      ctx.textBaseline = 'middle'
-      ctx.fillStyle = COLORS.complete + alphaHex(0.75)
-      // Lower left of the ring: the cost pill sits above the node and bubbles to its right
-      const labelAngle = CACHE_RING.labelAngle
-      ctx.fillText(
-        `${Math.round(hit * 100)}% cached`,
-        agent.x + Math.cos(labelAngle) * (ringR + CACHE_RING.labelOffset),
-        agent.y + Math.sin(labelAngle) * (ringR + CACHE_RING.labelOffset),
-      )
+      // The percentage is in the agent's model tag, clear of the bubbles and cards around a node
       ctx.restore()
     }
   }
