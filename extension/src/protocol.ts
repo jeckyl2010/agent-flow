@@ -209,6 +209,8 @@ export interface ClaudeHookDef {
   url?: string
   command?: string
   timeout?: number
+  /** Command hooks only: Claude Code runs it without waiting for it to finish */
+  async?: boolean
 }
 
 export interface ClaudeHookEntry {

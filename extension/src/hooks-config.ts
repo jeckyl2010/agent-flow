@@ -47,8 +47,27 @@ function runsLegacyScript(command?: string): boolean {
 
 // ─── Detection ────────────────────────────────────────────────────────────────
 
+/** The Claude Code events Agent Flow listens to. Keep in step with scripts/setup.js. */
+const HOOK_EVENTS = [
+  'SessionStart', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest',
+  'SubagentStart', 'SubagentStop', 'Notification', 'Stop', 'SessionEnd',
+] as const
+
+/** Whether the settings hold our hook, running hook.mjs and async, on every event: false for an
+ *  install from before hook.mjs, an event or `async` was added, so it is configured again. */
+function agentFlowHooksCurrent(settingsPath: string): boolean {
+  try {
+    const hooks = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')).hooks ?? {}
+    return HOOK_EVENTS.every(event => Array.isArray(hooks[event]) && hooks[event].some((entry: ClaudeHookEntry) =>
+      !!entry.hooks?.length && entry.hooks.every(h => runsCurrentScript(h.command) && h.async === true)))
+  } catch {
+    return false
+  }
+}
+
 function hooksAlreadyConfigured(): boolean {
-  if (hasAgentFlowHooks(GLOBAL_SETTINGS_PATH)) { return true }
+  // Ours in the global settings, but from an older version: configure them again
+  if (hasAgentFlowHooks(GLOBAL_SETTINGS_PATH)) { return agentFlowHooksCurrent(GLOBAL_SETTINGS_PATH) }
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   if (workspaceFolder) {
@@ -85,19 +104,11 @@ export async function configureClaudeHooks(): Promise<void> {
   ensureHookScript()
 
   const hookCommand = getHookCommand()
-  const hookEntry = { hooks: [{ type: 'command', command: hookCommand, timeout: HOOK_TIMEOUT_S }] }
+  // async: Claude Code doesn't wait for the forwarder, so a slow or absent Agent Flow never delays
+  // a session; the hook server puts a tool's start and end back in order (hook-server.ts).
+  const hookEntry = { hooks: [{ type: 'command', command: hookCommand, timeout: HOOK_TIMEOUT_S, async: true }] }
 
-  const hooksConfig = {
-    SessionStart: [hookEntry],
-    PreToolUse: [hookEntry],
-    PostToolUse: [hookEntry],
-    PostToolUseFailure: [hookEntry],
-    SubagentStart: [hookEntry],
-    SubagentStop: [hookEntry],
-    Notification: [hookEntry],
-    Stop: [hookEntry],
-    SessionEnd: [hookEntry],
-  }
+  const hooksConfig = Object.fromEntries(HOOK_EVENTS.map(event => [event, [hookEntry]]))
 
   // Read existing settings
   let settings: Record<string, unknown> = readGlobalSettings() ?? {}

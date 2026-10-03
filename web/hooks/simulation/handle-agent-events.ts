@@ -155,18 +155,29 @@ export function handlePermissionRequested(
   state: MutableEventState,
   ctx: ProcessEventContext,
 ): void {
-  const agentName = asString(payload.agent, 'Orchestrator')
-  const agent = state.agents.get(agentName)
-  if (agent && agent.state !== 'complete') {
-    state.agents.set(agentName, {
-      ...agent,
-      state: 'waiting_permission',
-    })
+  // A subagent the hooks name differently from the transcript isn't on the canvas: show its wait on
+  // the main agent, as before the hooks named the agent that asked
+  const named = asString(payload.agent)
+  const agentName = state.agents.has(named)
+    ? named
+    : [...state.agents.entries()].find(([, a]) => a.isMain)?.[0]
+  const agent = agentName === undefined ? undefined : state.agents.get(agentName)
+  if (agentName === undefined || !agent || agent.state === 'complete') return
 
-    const entry = state.timelineEntries.get(agentName)
-    if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'idle', label: 'Permission', color: COLORS.waiting_permission }, ctx)
-    }
+  // The PermissionRequest hook says what for; the Notification hook and the transcript only that it waits
+  const tool = asString(payload.tool)
+  const detail = tool ? asString(payload.message, tool) : undefined
+  if (agent.state === 'waiting_permission') {
+    // The same wait, reported again by another source: keep one block, and the most precise detail
+    if (detail) state.agents.set(agentName, { ...agent, pendingPermission: detail })
+    return
+  }
+  state.agents.set(agentName, { ...agent, state: 'waiting_permission', pendingPermission: detail })
+
+  const entry = state.timelineEntries.get(agentName)
+  if (entry) {
+    const label = tool ? `Permission: ${tool}` : 'Permission'
+    pushTimelineBlock(entry, currentTime, { type: 'idle', label, color: COLORS.waiting_permission }, ctx)
   }
 }
 
@@ -177,7 +188,7 @@ export function handleAgentIdle(
   const idleName = asString(payload.name)
   const idleAgent = state.agents.get(idleName)
   if (idleAgent && (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
-    state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined })
+    state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined, pendingPermission: undefined })
   }
 }
 

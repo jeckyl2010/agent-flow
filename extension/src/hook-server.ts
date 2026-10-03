@@ -41,6 +41,7 @@ interface HookPayload {
   agent_id?: string
   agent_type?: string
   agent_transcript_path?: string
+  // PermissionRequest carries tool_name and tool_input, as PreToolUse does
   // Notification
   notification_type?: string
   message?: string
@@ -49,14 +50,24 @@ interface HookPayload {
   [key: string]: unknown
 }
 
+/** What the hook server remembers per session — cleaned up on SessionEnd to prevent unbounded growth */
+interface SessionHookState {
+  startTime: number
+  agentNames: Map<string, string> // agent_id → friendly name
+  /** Hooks run async, so a fast tool's PostToolUse can arrive before its PreToolUse. Tracked by
+   *  tool_use_id: 'started' once its start is shown, 'ended' once an early end was shown with a
+   *  start made up for it, so the late PreToolUse is dropped. Matched pairs are removed. */
+  toolUses: Map<string, 'started' | 'ended'>
+  /** Once PermissionRequest is seen, the generic permission Notification is redundant — and it
+   *  always names the orchestrator, even when a subagent is the one asking. */
+  sawPermissionRequest: boolean
+}
+
 export class HookServer implements vscode.Disposable {
   private server: http.Server | null = null
   private port: number
   /** Per-session state — cleaned up on SessionEnd/Stop to prevent unbounded growth */
-  private sessionState = new Map<string, {
-    startTime: number
-    agentNames: Map<string, string> // agent_id → friendly name
-  }>()
+  private sessionState = new Map<string, SessionHookState>()
 
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
 
@@ -134,10 +145,10 @@ export class HookServer implements vscode.Disposable {
     return this.port
   }
 
-  private getOrCreateSession(sessionId: string): { startTime: number; agentNames: Map<string, string> } {
+  private getOrCreateSession(sessionId: string): SessionHookState {
     let state = this.sessionState.get(sessionId)
     if (!state) {
-      state = { startTime: Date.now(), agentNames: new Map() }
+      state = { startTime: Date.now(), agentNames: new Map(), toolUses: new Map(), sawPermissionRequest: false }
       this.sessionState.set(sessionId, state)
     }
     return state
@@ -157,13 +168,18 @@ export class HookServer implements vscode.Disposable {
         this.handleSessionStart(payload)
         break
       case 'PreToolUse':
-        this.handlePreToolUse(payload)
+        this.startToolUse(payload)
         break
       case 'PostToolUse':
+        this.endsToolUse(payload)
         this.handlePostToolUse(payload)
         break
       case 'PostToolUseFailure':
+        this.endsToolUse(payload)
         this.handlePostToolUseFailure(payload)
+        break
+      case 'PermissionRequest':
+        this.handlePermissionRequest(payload)
         break
       case 'SubagentStart':
         this.handleSubagentStart(payload)
@@ -195,6 +211,32 @@ export class HookServer implements vscode.Disposable {
         task: `Session ${payload.session_id.slice(0, SESSION_ID_DISPLAY)}`,
       },
     }, payload.session_id)
+  }
+
+  /** A tool's start, unless its end arrived first and was already shown with a start made up for it. */
+  private startToolUse(payload: HookPayload): void {
+    const id = payload.tool_use_id
+    const uses = this.sessionState.get(payload.session_id)?.toolUses
+    if (id && uses?.get(id) === 'ended') {
+      uses.delete(id)
+      return
+    }
+    this.handlePreToolUse(payload) // creates the session when this is its first event
+    if (id) this.getOrCreateSession(payload.session_id).toolUses.set(id, 'started')
+  }
+
+  /** Before a tool's end is shown: if its start hasn't arrived yet, show one now, so the call
+   *  doesn't stay running once the late PreToolUse comes and is dropped. */
+  private endsToolUse(payload: HookPayload): void {
+    const id = payload.tool_use_id
+    if (!id) return
+    const uses = this.sessionState.get(payload.session_id)?.toolUses
+    if (uses?.get(id) === 'started') {
+      uses.delete(id)
+      return
+    }
+    this.handlePreToolUse(payload) // PostToolUse carries the same tool_name and tool_input
+    this.getOrCreateSession(payload.session_id).toolUses.set(id, 'ended')
   }
 
   private handlePreToolUse(payload: HookPayload): void {
@@ -298,8 +340,29 @@ export class HookServer implements vscode.Disposable {
     }, payload.session_id)
   }
 
+  /** What is waiting for the user's approval, by the agent that asked: the tool and its input. */
+  private handlePermissionRequest(payload: HookPayload): void {
+    this.getOrCreateSession(payload.session_id).sawPermissionRequest = true
+    const toolName = payload.tool_name || 'unknown'
+    const args = summarizeInput(toolName, payload.tool_input)
+
+    this.emit({
+      time: this.elapsedSeconds(payload.session_id),
+      type: 'permission_requested',
+      payload: {
+        agent: this.resolveAgentName(payload),
+        tool: toolName,
+        args,
+        message: `${toolName}: ${args}`.slice(0, PREVIEW_MAX),
+        title: 'Permission needed',
+      },
+    }, payload.session_id)
+  }
+
   private handleNotification(payload: HookPayload): void {
     if (payload.notification_type !== 'permission_prompt') return
+    // Claude Code without PermissionRequest (older versions) still says so here, if less precisely
+    if (this.sessionState.get(payload.session_id)?.sawPermissionRequest) return
 
     this.emit({
       time: this.elapsedSeconds(payload.session_id),

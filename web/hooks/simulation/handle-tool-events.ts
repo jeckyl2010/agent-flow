@@ -37,6 +37,7 @@ export function handleToolCallStart(
       ...agent,
       state: 'tool_calling',
       currentTool: toolName,
+      pendingPermission: undefined,
       toolCalls: agent.toolCalls + 1
     })
 
@@ -113,6 +114,7 @@ export function handleToolCallEnd(
       ...agent,
       state: isError ? 'error' : 'thinking',
       currentTool: undefined,
+      pendingPermission: undefined, // allowed, or denied: either way no longer waiting
       tokensUsed: agent.tokensUsed + (tokenCost ?? 0),
     })
 

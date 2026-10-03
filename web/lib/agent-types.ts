@@ -35,6 +35,8 @@ export interface Agent {
    *  Drives context-window sizing and the per-family cost rate. */
   model?: string
   currentTool?: string
+  /** While waiting for permission: what for, e.g. "Bash: rm -rf node_modules", when the hook said */
+  pendingPermission?: string
   task?: string
   spawnTime: number
   completeTime?: number

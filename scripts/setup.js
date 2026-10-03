@@ -29,6 +29,11 @@ const HOOK_FORWARD_TIMEOUT_MS = 1000
 const HOOK_COMMAND_MARKER = 'agent-flow/hook.mjs'
 // Hooks from before v4 run hook.js: still ours, and replaced when setup runs
 const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
+// The Claude Code events Agent Flow listens to. Keep in step with extension/src/hooks-config.ts.
+const HOOK_EVENTS = [
+  'SessionStart', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest',
+  'SubagentStart', 'SubagentStop', 'Notification', 'Stop', 'SessionEnd',
+]
 
 // ─── Resolve node path ──────────────────────────────────────────────────────
 
@@ -171,12 +176,9 @@ function isCurrentAgentFlowHook(entry) {
 function configureHooks() {
   const nodePath = resolveNodePath()
   const hookCommand = `"${nodePath}" "${HOOK_SCRIPT_PATH}"`
-  const hookEntry = { hooks: [{ type: 'command', command: hookCommand, timeout: HOOK_TIMEOUT_S }] }
-
-  const events = [
-    'SessionStart', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
-    'SubagentStart', 'SubagentStop', 'Notification', 'Stop', 'SessionEnd',
-  ]
+  // async: Claude Code doesn't wait for the forwarder, so a slow or absent Agent Flow never delays a
+  // session; the hook server puts a tool's start and end back in order.
+  const hookEntry = { hooks: [{ type: 'command', command: hookCommand, timeout: HOOK_TIMEOUT_S, async: true }] }
 
   let settings = {}
   try {
@@ -188,7 +190,7 @@ function configureHooks() {
   }
 
   const existingHooks = settings.hooks || {}
-  for (const event of events) {
+  for (const event of HOOK_EVENTS) {
     const existing = existingHooks[event] || []
     const filtered = existing.filter(entry => !isAgentFlowHook(entry))
     existingHooks[event] = [...filtered, hookEntry]
@@ -215,11 +217,10 @@ function isAlreadySetup() {
     const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'))
     const hooks = settings.hooks
     if (!hooks || typeof hooks !== 'object') return false
-    // Hooks that still run the old hook.js count as not set up, so they're replaced
-    return Object.values(hooks).some(entries => {
-      if (!Array.isArray(entries)) return false
-      return entries.some(entry => isCurrentAgentFlowHook(entry))
-    })
+    // Ours, running hook.mjs, async, on every event: an install from before hook.mjs, an event or
+    // `async` is set up again
+    return HOOK_EVENTS.every(event => Array.isArray(hooks[event]) && hooks[event].some(entry =>
+      isCurrentAgentFlowHook(entry) && entry.hooks.every(h => h.async === true)))
   } catch {
     return false
   }
