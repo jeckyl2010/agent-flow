@@ -72,6 +72,24 @@ To restrict to one runtime:
 
 For non-default Codex installs, set the `CODEX_HOME` environment variable.
 
+### Claude Code bridge mod (early access)
+
+`plugin/` is a Claude Code mod that reports a session from inside Claude Code
+instead of through settings.json hooks and the transcript file. For the
+sessions it reports, Agent Flow shows:
+
+- tool calls as they start and end, in order, once each
+- permission requests only when Claude Code actually shows the dialog
+- subagents by their real ids, under the agent that started them
+- each agent's model and its context fill as the API measured it, not an estimate
+- answers and thinking streaming in as the model writes them
+
+Load it with `claude --plugin-dir /path/to/agent-flow/plugin`, then run
+`/agent-flow` in Claude Code to see where it sends events. It finds a running
+Agent Flow the same way the hook script does, and sends nothing when none is
+watching the session's directory. The mod API is early access and may change
+between Claude Code releases; sessions without the mod keep working as before.
+
 ### JSONL Event Log
 
 You can also point Agent Flow at a JSONL event log file:

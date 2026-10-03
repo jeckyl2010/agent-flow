@@ -14,6 +14,7 @@ export type AgentEventType =
   | 'message'
   | 'context_update'
   | 'model_detected'
+  | 'model_step'
   | 'tool_call_start'
   | 'tool_call_end'
   | 'subagent_dispatch'
