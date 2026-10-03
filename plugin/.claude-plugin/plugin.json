@@ -1,0 +1,1 @@
+{ "name": "agent-flow-bridge", "version": "0.1.0", "description": "Streams this session's tool calls, subagents, permissions and model usage to a running Agent Flow." }

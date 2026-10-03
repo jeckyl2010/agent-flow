@@ -82,15 +82,17 @@ export function drawContextComposition(
   ctx.textAlign = 'center'
   ctx.fillText(`${formatTokens(total)} / ${formatTokens(agent.tokensMax)} tokens`, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
 
-  // Segments
+  // Segments: each its share of the breakdown, of a fill set by the total, which is the API's
+  // measurement when there is one while the breakdown stays the transcript's estimate
   const segments = contextSegments(bd)
+  const segTotal = segments.reduce((s, seg) => s + Math.max(0, seg.value), 0) || total
 
   let x = barX
-  const maxWidth = barWidth * (total / agent.tokensMax)
+  const maxWidth = barWidth * Math.min(1, total / agent.tokensMax)
 
   for (const seg of segments) {
     if (seg.value <= 0) continue
-    const segWidth = (seg.value / total) * maxWidth
+    const segWidth = (seg.value / segTotal) * maxWidth
     ctx.fillStyle = seg.color
     ctx.fillRect(x, barY, segWidth, barHeight)
     x += segWidth
@@ -129,13 +131,15 @@ export function drawContextRing(
   ctx.lineWidth = ringW
   ctx.stroke()
 
-  // Filled segments
+  // Filled segments, scaled as the bar's are: the breakdown's proportions of the total
   const segments = contextSegments(bd)
+  const segTotal = segments.reduce((s, seg) => s + Math.max(0, seg.value), 0) || total
+  const fill = Math.min(1, usage)
 
   let currentAngle = startAngle
   for (const seg of segments) {
     if (seg.value <= 0) continue
-    const sweep = (seg.value / agent.tokensMax) * Math.PI * 2
+    const sweep = (seg.value / segTotal) * fill * Math.PI * 2
     ctx.beginPath()
     ctx.arc(agent.x, agent.y, ringR, currentAngle, currentAngle + sweep)
     ctx.strokeStyle = seg.color

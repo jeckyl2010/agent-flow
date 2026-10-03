@@ -17,6 +17,7 @@ import { readNewFileLines } from './fs-utils'
 import { TranscriptParser } from './transcript-parser'
 import { handlePermissionDetection, PermissionDetectionDelegate } from './permission-detection'
 import { createLogger } from './logger'
+import { isModSession } from './mod-sessions'
 
 const log = createLogger('SubagentWatcher')
 
@@ -129,7 +130,8 @@ function startWatchingSubagentFile(
   // AND haven't already been spawned by the transcript parser.
   const alreadySpawned = session.spawnedSubagents.has(agentName)
   state.spawnEmitted = pendingToolUseIds.size > 0 || alreadySpawned
-  if (pendingToolUseIds.size > 0 && !alreadySpawned) {
+  // A session the agent-flow-bridge mod reports gets its subagents from the mod
+  if (pendingToolUseIds.size > 0 && !alreadySpawned && !isModSession(sessionId)) {
     session.spawnedSubagents.add(agentName)
     emitSubagentSpawn(delegate, ORCHESTRATOR_NAME, agentName, agentName, sessionId)
   }
@@ -170,7 +172,7 @@ export function readSubagentNewLines(
   // Lazily emit spawn on first new content if not already emitted
   if (!state.spawnEmitted) {
     state.spawnEmitted = true
-    if (!session.spawnedSubagents.has(state.agentName)) {
+    if (!session.spawnedSubagents.has(state.agentName) && !isModSession(sessionId)) {
       session.spawnedSubagents.add(state.agentName)
       emitSubagentSpawn(delegate, ORCHESTRATOR_NAME, state.agentName, state.agentName, sessionId)
     }

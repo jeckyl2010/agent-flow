@@ -13,7 +13,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const HOOK_COMMAND_MARKER = 'agent-flow/hook.js';
+// hook.mjs since v4; hook.js before it
+const HOOK_COMMAND_MARKERS = ['agent-flow/hook.mjs', 'agent-flow/hook.js'];
 const HOOK_URL_PREFIX = 'http://127.0.0.1:';
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow');
 const MANIFEST_PATH = path.join(DISCOVERY_DIR, 'workspaces.json');
@@ -32,7 +33,7 @@ function removeHooksFromFile(settingsPath) {
       if (!Array.isArray(entries)) { continue; }
       const filtered = entries.filter(entry => {
         return !entry.hooks?.some(h =>
-          h.command?.includes(HOOK_COMMAND_MARKER) ||
+          HOOK_COMMAND_MARKERS.some(marker => h.command?.replace(/\\/g, '/').includes(marker)) ||
           h.url?.startsWith(HOOK_URL_PREFIX),
         );
       });

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import { createBuildConfig } from './vite.config.shared'
+import { createBuildConfig } from './vite.config.shared.ts'
 
 export default defineConfig(createBuildConfig({
   outDir: '../app/dist/webview',

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Telemetry is now opt-in** — `npx agent-flow-app` sends nothing and writes nothing to `~/.agent-flow/` unless `AGENT_FLOW_TELEMETRY=true` is set. `DO_NOT_TRACK=1` still wins over it
+
 ## 0.9.1
 
 - Fix: Claude Code session discovery on Windows — workspace-to-project-dir matching is now case-insensitive on win32 (#57, part of #4)

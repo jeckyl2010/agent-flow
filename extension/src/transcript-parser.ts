@@ -25,6 +25,7 @@ import {
 import { summarizeInput, summarizeResult, extractInputData, detectError, buildDiscovery } from './tool-summarizer'
 import { estimateTokensFromContent, estimateTokensFromText } from './token-estimator'
 import { createLogger } from './logger'
+import { isModSession } from './mod-sessions'
 
 const log = createLogger('TranscriptParser')
 
@@ -226,6 +227,8 @@ export class TranscriptParser {
       if (emitRole === 'user') { session.contextBreakdown.userMessages += estimateTokensFromText(text) }
       else { session.contextBreakdown.reasoning += estimateTokensFromText(text) }
     }
+    // The agent-flow-bridge mod streams a reported session's answers as they are written
+    if (emitRole === 'assistant' && sessionId && isModSession(sessionId)) return
     this.delegate.emit({
       time: this.delegate.elapsed(sessionId),
       type: 'message',
@@ -253,6 +256,8 @@ export class TranscriptParser {
 
     // Reasoning tokens are unknown for redacted blocks — skip breakdown update
     if (session && thinking) { session.contextBreakdown.reasoning += estimateTokensFromText(thinking) }
+    // The mod streams thinking that has text; a redacted block's placeholder still comes from here
+    if (thinking && sessionId && isModSession(sessionId)) return
     this.delegate.emit({
       time: this.delegate.elapsed(sessionId),
       type: 'message',
@@ -282,18 +287,23 @@ export class TranscriptParser {
       startTime: Date.now(),
     })
 
+    // The agent-flow-bridge mod reports this session's tool calls and subagents live: the
+    // transcript only keeps the names its subagents' progress is filed under
+    const isReported = !!sessionId && isModSession(sessionId)
+
     // Check if this is a subagent call (Task in older Claude Code, Agent in newer versions)
     if (toolName === 'Task' || toolName === 'Agent') {
       const childName = resolveSubagentChildName(block.input)
       this.subagentChildNames.set(block.id, childName)
       // Only emit spawn once per subagent name (file watcher may have already spawned it)
       const session = sessionId ? this.delegate.getSession(sessionId) : undefined
-      if (!session?.spawnedSubagents.has(childName)) {
+      if (!isReported && !session?.spawnedSubagents.has(childName)) {
         session?.spawnedSubagents.add(childName)
         emitSubagentSpawn(this.delegate, agentName, childName, args, sessionId)
       }
     }
 
+    if (isReported) return
     this.delegate.emit({
       time: this.delegate.elapsed(sessionId),
       type: 'tool_call_start',
@@ -337,18 +347,20 @@ export class TranscriptParser {
     // Build discovery for file-related tools
     const discovery = buildDiscovery(toolName, pending?.filePath || '', result)
 
+    const isReported = !!sessionId && isModSession(sessionId)
+
     // If it was a subagent call completing, emit subagent return
     if (toolName === 'Task' || toolName === 'Agent') {
       const childName = this.subagentChildNames.get(block.tool_use_id) || pending?.args?.slice(0, CHILD_NAME_MAX) || 'subagent'
       // Clean up inline subagent tracking state
       this.subagentChildNames.delete(block.tool_use_id)
       this.inlineSubagentState.delete(block.tool_use_id)
-      this.delegate.emit({
+      if (!isReported) this.delegate.emit({
         time: this.delegate.elapsed(sessionId),
         type: 'subagent_return',
         payload: { child: childName, parent: agentName, summary: result.slice(0, ARGS_MAX) },
       }, sessionId)
-      this.delegate.emit({
+      if (!isReported) this.delegate.emit({
         time: this.delegate.elapsed(sessionId),
         type: 'agent_complete',
         payload: { name: childName },
@@ -359,7 +371,7 @@ export class TranscriptParser {
     const isError = detectError(result)
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
 
-    this.delegate.emit({
+    if (!isReported) this.delegate.emit({
       time: this.delegate.elapsed(sessionId),
       type: 'tool_call_end',
       payload: {

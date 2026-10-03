@@ -5,7 +5,7 @@ import * as os from 'os'
 import { ClaudeHookEntry } from './protocol'
 import { HOOK_URL_PREFIX, HOOK_TIMEOUT_S } from './constants'
 import {
-  HOOK_COMMAND_MARKER,
+  HOOK_COMMAND_MARKER, LEGACY_HOOK_COMMAND_MARKER,
   getHookCommand, ensureHookScript,
   addWorkspaceToManifest,
 } from './discovery'
@@ -29,17 +29,45 @@ function readGlobalSettings(): Record<string, unknown> | null {
 /** Check whether a single hook entry belongs to Agent Flow */
 function isAgentFlowHook(entry: ClaudeHookEntry): boolean {
   return !!entry.hooks?.some(h =>
-    // Normalize backslashes to forward slashes so Windows paths
-    // (e.g. "C:\\Users\\...\\agent-flow\\hook.js") match HOOK_COMMAND_MARKER.
-    h.command?.replace(/\\/g, '/').includes(HOOK_COMMAND_MARKER) ||
+    runsCurrentScript(h.command) || runsLegacyScript(h.command) ||
     h.url?.startsWith(HOOK_URL_PREFIX),
   )
 }
 
+// Normalize backslashes to forward slashes so Windows paths
+// (e.g. "C:\\Users\\...\\agent-flow\\hook.mjs") match the markers.
+function runsCurrentScript(command?: string): boolean {
+  return !!command?.replace(/\\/g, '/').includes(HOOK_COMMAND_MARKER)
+}
+
+/** Runs the hook.js from before v4, which Node loads as an ES module under a "type": "module" home */
+function runsLegacyScript(command?: string): boolean {
+  return !!command?.replace(/\\/g, '/').includes(LEGACY_HOOK_COMMAND_MARKER)
+}
+
 // ─── Detection ────────────────────────────────────────────────────────────────
 
+/** The Claude Code events Agent Flow listens to. Keep in step with scripts/setup.js. */
+const HOOK_EVENTS = [
+  'SessionStart', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest',
+  'SubagentStart', 'SubagentStop', 'Notification', 'Stop', 'SessionEnd',
+] as const
+
+/** Whether the settings hold our hook, running hook.mjs and async, on every event: false for an
+ *  install from before hook.mjs, an event or `async` was added, so it is configured again. */
+function agentFlowHooksCurrent(settingsPath: string): boolean {
+  try {
+    const hooks = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')).hooks ?? {}
+    return HOOK_EVENTS.every(event => Array.isArray(hooks[event]) && hooks[event].some((entry: ClaudeHookEntry) =>
+      !!entry.hooks?.length && entry.hooks.every(h => runsCurrentScript(h.command) && h.async === true)))
+  } catch {
+    return false
+  }
+}
+
 function hooksAlreadyConfigured(): boolean {
-  if (hasAgentFlowHooks(GLOBAL_SETTINGS_PATH)) { return true }
+  // Ours in the global settings, but from an older version: configure them again
+  if (hasAgentFlowHooks(GLOBAL_SETTINGS_PATH)) { return agentFlowHooksCurrent(GLOBAL_SETTINGS_PATH) }
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   if (workspaceFolder) {
@@ -76,19 +104,11 @@ export async function configureClaudeHooks(): Promise<void> {
   ensureHookScript()
 
   const hookCommand = getHookCommand()
-  const hookEntry = { hooks: [{ type: 'command', command: hookCommand, timeout: HOOK_TIMEOUT_S }] }
+  // async: Claude Code doesn't wait for the forwarder, so a slow or absent Agent Flow never delays
+  // a session; the hook server puts a tool's start and end back in order (hook-server.ts).
+  const hookEntry = { hooks: [{ type: 'command', command: hookCommand, timeout: HOOK_TIMEOUT_S, async: true }] }
 
-  const hooksConfig = {
-    SessionStart: [hookEntry],
-    PreToolUse: [hookEntry],
-    PostToolUse: [hookEntry],
-    PostToolUseFailure: [hookEntry],
-    SubagentStart: [hookEntry],
-    SubagentStop: [hookEntry],
-    Notification: [hookEntry],
-    Stop: [hookEntry],
-    SessionEnd: [hookEntry],
-  }
+  const hooksConfig = Object.fromEntries(HOOK_EVENTS.map(event => [event, [hookEntry]]))
 
   // Read existing settings
   let settings: Record<string, unknown> = readGlobalSettings() ?? {}
@@ -118,9 +138,10 @@ export async function configureClaudeHooks(): Promise<void> {
 
 // ─── Migration ────────────────────────────────────────────────────────────────
 
-/** Replace legacy HTTP hooks with command hooks. Called once on activation.
+/** Replace legacy hooks with ones running the current script: HTTP hooks, and command hooks
+ *  running the hook.js from before v4. Called once on activation.
  *  Caller must call ensureHookScript() first. */
-export function migrateHttpHooks(): void {
+export function migrateLegacyHooks(): void {
   const pathsToCheck: string[] = [GLOBAL_SETTINGS_PATH]
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   if (workspaceFolder) {
@@ -151,6 +172,9 @@ export function migrateHttpHooks(): void {
               h.command = hookCommand
               if (h.timeout === undefined) { h.timeout = HOOK_TIMEOUT_S }
               changed = true
+            } else if (runsLegacyScript(h.command)) {
+              h.command = hookCommand
+              changed = true
             }
           }
         }
@@ -158,7 +182,7 @@ export function migrateHttpHooks(): void {
 
       if (changed) {
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n')
-        log.info(`Migrated HTTP hooks → command hooks in ${settingsPath}`)
+        log.info(`Migrated legacy hooks → ${HOOK_COMMAND_MARKER} in ${settingsPath}`)
         // Ensure migrated project-level hooks are tracked in the manifest
         if (workspaceFolder && settingsPath.includes(workspaceFolder)) {
           addWorkspaceToManifest(workspaceFolder)

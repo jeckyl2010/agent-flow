@@ -17,6 +17,7 @@ interface AgentDetailCardProps {
     toolCalls: number
     timeAlive: number
     currentTool?: string
+    pendingPermission?: string
   }
   onClose: () => void
 }
@@ -91,6 +92,19 @@ export function AgentDetailCard({
         >
           <span className="animate-spin inline-block">⚙</span>
           {agent.currentTool}
+        </div>
+      )}
+
+      {/* What it waits for the user to allow */}
+      {agent.state === 'waiting_permission' && agent.pendingPermission && (
+        <div
+          className="mb-3 px-2 py-1.5 rounded text-[10px] font-mono break-all"
+          style={{
+            border: `1px solid ${COLORS.waiting_permission}`,
+            color: COLORS.waiting_permission,
+          }}
+        >
+          Waiting for you to allow {agent.pendingPermission}
         </div>
       )}
 

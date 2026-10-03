@@ -14,6 +14,7 @@ export type AgentEventType =
   | 'message'
   | 'context_update'
   | 'model_detected'
+  | 'model_step'
   | 'tool_call_start'
   | 'tool_call_end'
   | 'subagent_dispatch'
@@ -209,6 +210,8 @@ export interface ClaudeHookDef {
   url?: string
   command?: string
   timeout?: number
+  /** Command hooks only: Claude Code runs it without waiting for it to finish */
+  async?: boolean
 }
 
 export interface ClaudeHookEntry {

@@ -3,10 +3,12 @@
  *
  * When a tool call stays pending for longer than PERMISSION_DETECT_MS without
  * any new file activity, it's likely waiting for user permission approval.
+ * Not for a session the agent-flow-bridge mod reports: it says when a dialog shows.
  */
 
 import { AgentEvent, PendingToolCall } from './protocol'
 import { PERMISSION_DETECT_MS } from './constants'
+import { isModSession } from './mod-sessions'
 
 /** Minimal state needed for permission tracking (shared by WatchedSession and SubagentState) */
 export interface PermissionState {
@@ -46,6 +48,8 @@ export function handlePermissionDetection(
       payload: { name: agentName },
     }, sessionId)
   }
+
+  if (isModSession(sessionId)) return
 
   const needsPermission = Array.from(pendingToolCalls.values())
     .some(tc => tc.name !== 'Agent' && tc.name !== 'Task')

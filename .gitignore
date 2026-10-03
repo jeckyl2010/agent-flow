@@ -12,6 +12,9 @@ scripts/.dev-relay.js.map
 app/dist/
 next-env.d.ts
 *.tsbuildinfo
+# Written by `next dev` for coding agents
+web/AGENTS.md
+web/CLAUDE.md
 
 # Local IDE config
 extension/.vscode/

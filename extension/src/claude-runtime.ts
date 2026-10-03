@@ -21,7 +21,7 @@ import { AgentEvent } from './protocol'
 import {
   ORCHESTRATOR_NAME, HOOK_SERVER_NOT_STARTED,
 } from './constants'
-import { migrateHttpHooks } from './hooks-config'
+import { migrateLegacyHooks } from './hooks-config'
 import {
   writeDiscoveryFile, removeDiscoveryFile, ensureHookScript,
 } from './discovery'
@@ -76,7 +76,7 @@ export async function startClaudeRuntime(
     if (workspace) {
       ensureHookScript()
       writeDiscoveryFile(hookPort, workspace)
-      migrateHttpHooks()
+      migrateLegacyHooks()
     }
   }
 
@@ -135,7 +135,7 @@ export async function startClaudeRuntime(
   const dispose = (): void => {
     // Remove our discovery file so the hook script won't forward to a dead port.
     // Hook entries in settings.json are left intact — the command is stable
-    // (node ~/.claude/agent-flow/hook.js) and the script handles dead instances
+    // (node ~/.claude/agent-flow/hook.mjs) and the script handles dead instances
     // gracefully via PID checks. This avoids breaking multi-window setups and
     // means hooks survive VS Code restarts without reconfiguration.
     if (workspace) { removeDiscoveryFile(workspace) }

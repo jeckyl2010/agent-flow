@@ -3,13 +3,13 @@
 /** Single source of truth for Claude model families. Display names
  *  (formatModelName in utils.ts), context-window sizes, and cost rates all
  *  derive from this table — add new families here and nowhere else.
- *  Rates are blended $/M-token (0.75 × input + 0.25 × output per-MTok). */
-export const CLAUDE_FAMILIES: ReadonlyArray<{ name: string; context: number; rate: number }> = [
-  { name: 'fable',  context: 1_000_000, rate: 20 }, // $10 in / $50 out
-  { name: 'mythos', context: 1_000_000, rate: 20 }, // $10 in / $50 out
-  { name: 'opus',   context: 1_000_000, rate: 10 }, // $5 in / $25 out
-  { name: 'sonnet', context: 1_000_000, rate: 6 },  // $3 in / $15 out
-  { name: 'haiku',  context: 200_000,   rate: 2 },  // $1 in / $5 out
+ *  Prices differ by version within a family: they are in model-pricing.ts. */
+export const CLAUDE_FAMILIES: ReadonlyArray<{ name: string; context: number }> = [
+  { name: 'fable',  context: 1_000_000 },
+  { name: 'mythos', context: 1_000_000 },
+  { name: 'opus',   context: 1_000_000 },
+  { name: 'sonnet', context: 1_000_000 },
+  { name: 'haiku',  context: 200_000 },
 ]
 
 /** Regex alternation fragment of all Claude family names (e.g. 'fable|mythos|…'). */
@@ -57,6 +57,10 @@ export const BUBBLE_HOLD = 10
 export const BUBBLE_FADE_IN = 0.3
 /** Seconds for bubble fade-out animation */
 export const BUBBLE_FADE_OUT = 1.5
+/** Seconds a streamed bubble takes to type out text that just arrived */
+export const BUBBLE_TYPE_S = 0.3
+/** Seconds per on/off of the cursor a streaming bubble shows */
+export const BUBBLE_CURSOR_BLINK_S = 0.45
 /** Maximum width (px) of a message bubble */
 export const BUBBLE_MAX_W = 220
 /** Vertical gap (px) between stacked bubbles */
@@ -179,17 +183,6 @@ export function getDiscoveryCardDimensions(label: string, contentLines: string[]
 
 export const TOOL_MAX_CARD_W = 160
 
-/** Blended $/M-token rate by model family (0.75 × input + 0.25 × output
- *  per-MTok pricing, the same weighting the original Sonnet-class rate used).
- *  Claude rates derive from CLAUDE_FAMILIES. Patterns are checked in order;
- *  first match wins. Matched against lower-cased model IDs. */
-export const MODEL_FAMILY_COST: ReadonlyArray<{ pattern: RegExp; rate: number }> = [
-  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}-\\d`), rate: f.rate })),
-  { pattern: /gpt-\d/, rate: 5 }, // gpt-5.3-codex: $1.75 in / $14 out
-]
-
-/** Blended $/M-token fallback rate for unknown models (Sonnet-class) */
-export const COST_RATE = 6
 
 // ─── Agent drawing constants ────────────────────────────────────────────────
 
@@ -251,6 +244,58 @@ export const CONTEXT_BAR = {
   fontSize: 7,
   /** Y padding below bar for label */
   labelPadding: 9,
+} as const
+
+/** One pulse per model request the API measured, expanding from the agent's node */
+export const HEARTBEAT = {
+  /** Pulses kept per agent */
+  maxPulses: 8,
+  /** Seconds a pulse takes to expand and fade */
+  duration: 1.4,
+  /** Distance past the node's edge a pulse starts at, and travels at least / at most */
+  startOffset: 3,
+  minTravel: 14,
+  maxTravel: 34,
+  /** Output tokens that make a full-size pulse (log scale below it) */
+  fullOutputTokens: 4000,
+  maxAlpha: 0.75,
+  maxLineWidth: 3,
+  /** Seconds between a pulse and each of its echoes: one echo per effort level above medium */
+  echoDelay: 0.09,
+} as const
+
+/** The chip under an agent naming the model and effort of its latest request */
+export const MODEL_TAG = {
+  fontSize: 6.5,
+  height: 11,
+  radius: 2,
+  padX: 5,
+  /** Below the node when it has no context bar, and below the bar and its label when it does */
+  yOffset: 24,
+  yOffsetBelowBar: 50,
+  pipRadius: 2.4,
+  pipSpacing: 6.5,
+  pipGap: 5,
+  /** Gap before the cache share, the chip's last part */
+  cacheGap: 5,
+  /** Seconds the text takes to decode into place, and to fade in when it first appears */
+  decodeS: 0.9,
+  fadeInS: 0.3,
+  /** Share of the decode the start times spread over, and how long each character flickers */
+  decodeSpread: 0.7,
+  decodeWindow: 0.3,
+  flickerHz: 30,
+  /** The hexagonal shockwave on a change: seconds, and how far past the node it travels */
+  shockS: 1.1,
+  shockTravel: 70,
+} as const
+
+/** The share of the latest request's input the prompt cache served, as a thin arc */
+export const CACHE_RING = {
+  /** Gap past the outermost ring the agent already has (the main agent's context ring) */
+  offsetMain: 15,
+  offsetSub: 6,
+  width: 1.5,
 } as const
 
 export const CONTEXT_RING = {
