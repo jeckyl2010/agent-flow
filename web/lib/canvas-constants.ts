@@ -260,6 +260,32 @@ export const HEARTBEAT = {
   fullOutputTokens: 4000,
   maxAlpha: 0.75,
   maxLineWidth: 3,
+  /** Seconds between a pulse and each of its echoes: one echo per effort level above medium */
+  echoDelay: 0.09,
+} as const
+
+/** The chip under an agent naming the model and effort of its latest request */
+export const MODEL_TAG = {
+  fontSize: 6.5,
+  height: 11,
+  radius: 2,
+  padX: 5,
+  /** Below the node when it has no context bar, and below the bar and its label when it does */
+  yOffset: 24,
+  yOffsetBelowBar: 50,
+  pipRadius: 2.4,
+  pipSpacing: 6.5,
+  pipGap: 5,
+  /** Seconds the text takes to decode into place, and to fade in when it first appears */
+  decodeS: 0.9,
+  fadeInS: 0.3,
+  /** Share of the decode the start times spread over, and how long each character flickers */
+  decodeSpread: 0.7,
+  decodeWindow: 0.3,
+  flickerHz: 30,
+  /** The hexagonal shockwave on a change: seconds, and how far past the node it travels */
+  shockS: 1.1,
+  shockTravel: 70,
 } as const
 
 /** The share of the latest request's input the prompt cache served, as a thin arc */

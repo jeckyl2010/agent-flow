@@ -53,6 +53,8 @@ interface HookPayload {
   model?: string
   usage?: ModelUsage | null
   step?: number
+  /** How hard the request asked the model to think: `low` … `max`, or a number */
+  effort?: string | number
   stop_reason?: string | null
   /** What the whole session has cost, as /cost totals it, when the request ended */
   session_cost_usd?: number
@@ -500,6 +502,7 @@ export class HookServer implements vscode.Disposable {
       payload: {
         agent,
         model: payload.model,
+        ...(payload.effort !== undefined ? { effort: String(payload.effort) } : {}),
         step: payload.step,
         stopReason: payload.stop_reason,
         usage: {

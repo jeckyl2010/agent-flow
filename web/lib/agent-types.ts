@@ -52,6 +52,18 @@ export interface Agent {
   recentSteps?: ModelStepPulse[]
   /** The main agent: what the whole session has cost, as Claude Code's /cost totals it */
   sessionCostUsd?: number
+  /** The model and effort its latest request ran with, as the bridge mod measured it */
+  modelTag?: ModelTag
+}
+
+export interface ModelTag {
+  model: string
+  /** `low` … `max`, or a number */
+  effort?: string
+  /** Simulation time the tag last changed (or first appeared): its decode animation runs from here */
+  changedAt: number
+  /** What the tag read before the change; absent when it first appeared */
+  previousLabel?: string
 }
 
 export interface AgentSpend {
@@ -76,6 +88,8 @@ export interface ModelStepPulse {
   /** Why the model stopped: `tool_use`, `end_turn`, `max_tokens`, `compaction`, `refusal`, … */
   stopReason: string
   cost: number
+  /** The request's effort, `low` … `max`: higher effort sends more echo rings */
+  effort?: string
 }
 
 export interface MessageBubble {
@@ -150,6 +164,14 @@ export interface TimelineEntry {
   startTime: number
   endTime?: number
   blocks: TimelineBlock[]
+  /** Moments the agent's model or effort changed */
+  markers?: TimelineMarker[]
+}
+
+export interface TimelineMarker {
+  time: number
+  label: string
+  color: string
 }
 
 export interface TimelineBlock {

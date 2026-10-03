@@ -17,7 +17,7 @@ import {
   drawParticles, buildEdgeMap,
   drawToolCalls,
   drawDiscoveries, drawDiscoveryConnections,
-  drawCostLabels, drawCostSummaryPanel, drawHeartbeats,
+  drawCostLabels, drawCostSummaryPanel, drawHeartbeats, drawModelTags,
   detectStateChanges as detectStateChangesPure,
 } from './canvas/index'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
@@ -271,6 +271,7 @@ export function AgentCanvas({
       drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId)
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current)
       drawHeartbeats(ctx, agents, simTimeRef.current)
+      drawModelTags(ctx, agents, simTimeRef.current)
       drawMessageBubblesWorld(ctx, agents, simTimeRef.current)
       if (showCostOverlay) drawCostLabels(ctx, agents, toolCalls)
       drawParticles(ctx, particles, edgeMap, agents, toolCalls, timeRef.current)

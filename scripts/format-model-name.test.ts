@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { formatModelName } from '../web/lib/utils'
+import { formatModelName, modelTagLabel } from '../web/lib/utils'
+import { effortLevel } from '../web/lib/effort'
 import { CLAUDE_FAMILIES } from '../web/lib/canvas-constants'
 
 test('formats new Claude model ids', () => {
@@ -47,4 +48,16 @@ test('every CLAUDE_FAMILIES entry is formattable', () => {
   for (const f of CLAUDE_FAMILIES) {
     assert.equal(formatModelName(`claude-${f.name}-9-20990101`), `${f.name[0].toUpperCase()}${f.name.slice(1)} 9`)
   }
+})
+
+test('a model tag names the model and its effort', () => {
+  assert.equal(modelTagLabel('claude-opus-5-5', 'xhigh'), 'OPUS 5.5 · XHIGH')
+  assert.equal(modelTagLabel('claude-haiku-4-5-20251001'), 'HAIKU 4.5')
+})
+
+test('effort levels run from low (1) to max (5)', () => {
+  assert.equal(effortLevel('low'), 1)
+  assert.equal(effortLevel('max'), 5)
+  assert.equal(effortLevel('0.5'), undefined)
+  assert.equal(effortLevel(undefined), undefined)
 })

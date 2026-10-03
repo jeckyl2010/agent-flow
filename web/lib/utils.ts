@@ -46,3 +46,9 @@ export function formatModelName(model: string): string {
 
   return base
 }
+
+/** What an agent's model tag reads: `OPUS 5.5 · HIGH` */
+export function modelTagLabel(model: string, effort?: string): string {
+  const name = formatModelName(model).toUpperCase()
+  return effort ? `${name} · ${effort.toUpperCase()}` : name
+}

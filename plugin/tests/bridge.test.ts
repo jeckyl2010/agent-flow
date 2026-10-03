@@ -91,13 +91,13 @@ test('a streamed answer is sent as it grows, then whole, then the request’s us
     return { turnId: 't1', index: 0, answer: 'Hello', toolUses: [], stopReason: 'end_turn', usage }
   })
 
-  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 } as never)) { /* read it all */ }
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'high', messageCount: 1 } as never)) { /* read it all */ }
   await clock.settle()
 
   const outputs = posts.map(p => p.body).filter(b => b.hook_event_name === 'ModelOutput')
   expect(outputs.at(-1)).toEqual(expect.objectContaining({ stream_id: 't1:0:0', role: 'assistant', content: 'Hello', is_final: true }))
   expect(outputs.every(o => o.stream_id === 't1:0:0')).toBe(true)
-  expect(posts.at(-1)!.body).toEqual(expect.objectContaining({ hook_event_name: 'ModelStep', model: 'claude-opus-5-5', usage, session_cost_usd: 1.25 }))
+  expect(posts.at(-1)!.body).toEqual(expect.objectContaining({ hook_event_name: 'ModelStep', model: 'claude-opus-5-5', effort: 'high', usage, session_cost_usd: 1.25 }))
 })
 
 test('a subagent started from a subagent names its parent', async ($, on) => {

@@ -215,10 +215,10 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 // ── Model requests, as the agent-flow-bridge mod reports them ──────────────
 // Each is priced into the agent's spend and drawn as a heartbeat pulse; the cache share grows as
 // the conversation's prefix is reused.
-const step = (time: number, agent: string, stopReason: string, input: number, output: number, cacheRead: number, cacheWrite: number): SimulationEvent => ({
+const step = (time: number, agent: string, stopReason: string, input: number, output: number, cacheRead: number, cacheWrite: number, effort = 'high'): SimulationEvent => ({
   time, type: 'model_step',
   payload: {
-    agent, model: agent === 'orchestrator' ? 'claude-opus-5-5' : 'claude-sonnet-5-5', stopReason,
+    agent, model: agent === 'orchestrator' ? 'claude-opus-5-5' : 'claude-sonnet-5-5', effort, stopReason,
     usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite },
   },
 })
@@ -228,17 +228,17 @@ const MODEL_STEPS: SimulationEvent[] = [
   step(5.4, 'orchestrator', 'tool_use', 300, 120, 4600, 900),
   step(7.9, 'orchestrator', 'tool_use', 250, 1400, 9800, 1600),
   step(10.0, 'orchestrator', 'tool_use', 200, 600, 11800, 700),
-  step(11.5, 'explore-agent', 'tool_use', 1800, 220, 0, 1500),
+  step(11.5, 'explore-agent', 'tool_use', 1800, 220, 0, 1500, 'low'),
   step(12.0, 'research-agent', 'tool_use', 1800, 260, 0, 1500),
-  step(13.6, 'explore-agent', 'end_turn', 120, 900, 5200, 900),
+  step(13.6, 'explore-agent', 'end_turn', 120, 900, 5200, 900, 'low'),
   step(17.0, 'research-agent', 'tool_use', 150, 300, 8800, 1200),
   step(21.2, 'research-agent', 'end_turn', 140, 1700, 10500, 600),
-  step(22.5, 'orchestrator', 'tool_use', 300, 2600, 21000, 3200),
-  step(35.0, 'test-runner', 'tool_use', 2100, 400, 0, 1800),
-  step(44.0, 'test-runner', 'tool_use', 180, 3200, 9400, 1100),
-  step(56.0, 'test-runner', 'end_turn', 160, 700, 13900, 500),
-  step(60.0, 'orchestrator', 'tool_use', 280, 300, 44000, 1200),
-  step(63.8, 'orchestrator', 'end_turn', 240, 2100, 47800, 600),
+  step(22.5, 'orchestrator', 'tool_use', 300, 2600, 21000, 3200, 'xhigh'),
+  step(35.0, 'test-runner', 'tool_use', 2100, 400, 0, 1800, 'medium'),
+  step(44.0, 'test-runner', 'tool_use', 180, 3200, 9400, 1100, 'medium'),
+  step(56.0, 'test-runner', 'end_turn', 160, 700, 13900, 500, 'medium'),
+  step(60.0, 'orchestrator', 'tool_use', 280, 300, 44000, 1200, 'xhigh'),
+  step(63.8, 'orchestrator', 'end_turn', 240, 2100, 47800, 600, 'xhigh'),
 ]
 
 const WITH_MODEL_STEPS = [...NORMAL_MOCK_SCENARIO, ...MODEL_STEPS].sort((a, b) => a.time - b.time)

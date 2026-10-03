@@ -193,7 +193,7 @@ export const register: Register = on => {
           finish()
           send($, {
             hook_event_name: 'ModelStep', ...agentFields(e.agentId),
-            turn_id: e.turnId, step: e.index, model: chunk.usage?.model ?? e.model,
+            turn_id: e.turnId, step: e.index, model: chunk.usage?.model ?? e.model, effort: e.effort,
             stop_reason: chunk.stopReason, usage: chunk.usage,
           })
         }

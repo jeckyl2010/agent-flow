@@ -4,6 +4,7 @@ import { useRef, useEffect, useMemo } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { PanelHeader, SlidingPanel } from './shared-ui'
+import { drawHexagon } from './canvas/draw-misc'
 
 interface TimelinePanelProps {
   visible: boolean
@@ -18,6 +19,8 @@ const ROW_HEIGHT = 22
 const HEADER_HEIGHT = 20
 const LABEL_WIDTH = 90
 const FONT = '9px monospace'
+const MARKER_RADIUS = 3
+const MARKER_FONT = '7px monospace'
 
 // ─── Legend (static DOM — no perf cost) ─────────────────────────────────────
 
@@ -137,6 +140,26 @@ function drawTimeline(
         ctx.fillText(block.label, x + 4, trackY + trackH / 2 + 3)
         ctx.restore()
       }
+    }
+
+    // Model and effort changes: a glowing hex on the track, the new tag beside it
+    for (const marker of entry.markers ?? []) {
+      const x = LABEL_WIDTH + ((marker.time - minTime) / timeSpan) * barWidth
+      ctx.fillStyle = marker.color
+      ctx.globalAlpha = 0.5
+      ctx.fillRect(x, trackY, 1, trackH)
+      ctx.globalAlpha = 1
+      drawHexagon(ctx, x, trackY + 1, MARKER_RADIUS)
+      ctx.shadowColor = marker.color
+      ctx.shadowBlur = 6
+      ctx.fill()
+      ctx.shadowBlur = 0
+      ctx.save()
+      ctx.font = MARKER_FONT
+      ctx.textAlign = 'left'
+      ctx.globalAlpha = 0.9
+      ctx.fillText(marker.label, x + MARKER_RADIUS + 2, trackY + trackH - 2)
+      ctx.restore()
     }
 
     // Playhead

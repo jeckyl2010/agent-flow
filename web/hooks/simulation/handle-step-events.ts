@@ -1,4 +1,6 @@
-import type { Agent, AgentSpend, ModelStepPulse } from '@/lib/agent-types'
+import type { Agent, AgentSpend, ModelStepPulse, ModelTag } from '@/lib/agent-types'
+import { effortColor } from '@/lib/effort'
+import { modelTagLabel } from '@/lib/utils'
 import { stepCost, cacheHitRatio, type StepUsage } from '@/lib/model-pricing'
 import { HEARTBEAT } from '@/lib/canvas-constants'
 import { asString } from './types'
@@ -61,6 +63,7 @@ export function handleModelStep(
   if (!agent || !usage) return
 
   const model = typeof payload.model === 'string' ? payload.model : agent.model
+  const effort = typeof payload.effort === 'string' ? payload.effort : undefined
   const cost = stepCost(usage, model)
   const totals = spendFromTotals(payload.totals, payload.isComplete === true) ?? addStep(agent.spend, usage, cost)
   const spend: AgentSpend = { ...totals, lastCacheHit: cacheHitRatio(usage) ?? agent.spend?.lastCacheHit }
@@ -69,14 +72,38 @@ export function handleModelStep(
     outputTokens: usage.output_tokens,
     stopReason: typeof payload.stopReason === 'string' ? payload.stopReason : '',
     cost,
+    effort,
   }
   const recentSteps = [...(agent.recentSteps ?? []), pulse].slice(-HEARTBEAT.maxPulses)
-  state.agents.set(agentName, { ...agent, spend, recentSteps })
+  const modelTag = model ? nextModelTag(agent, model, effort, currentTime, state) : agent.modelTag
+  state.agents.set(agentName, { ...agent, spend, recentSteps, modelTag })
 
   if (typeof payload.sessionCostUsd === 'number') {
     const main = findMain(state.agents)
     if (main) state.agents.set(main.id, { ...main, sessionCostUsd: payload.sessionCostUsd })
   }
+}
+
+/** The agent's model tag after this request: a change restarts its animation and marks the timeline */
+function nextModelTag(
+  agent: Agent,
+  model: string,
+  effort: string | undefined,
+  currentTime: number,
+  state: MutableEventState,
+): ModelTag {
+  const prev = agent.modelTag
+  if (prev && prev.model === model && prev.effort === effort) return prev
+
+  const label = modelTagLabel(model, effort)
+  if (prev) {
+    const entry = state.timelineEntries.get(agent.id)
+    if (entry) {
+      const marker = { time: currentTime, label, color: effortColor(effort) }
+      state.timelineEntries.set(agent.id, { ...entry, markers: [...(entry.markers ?? []), marker] })
+    }
+  }
+  return { model, effort, changedAt: currentTime, previousLabel: prev ? modelTagLabel(prev.model, prev.effort) : undefined }
 }
 
 function findMain(agents: Map<string, Agent>): Agent | undefined {

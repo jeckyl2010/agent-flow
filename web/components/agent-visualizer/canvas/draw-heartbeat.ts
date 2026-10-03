@@ -2,6 +2,8 @@ import { Agent, NODE } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { HEARTBEAT, CACHE_RING, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { alphaHex } from '@/lib/utils'
+import { effortLevel } from '@/lib/effort'
+import { drawHexagon } from './draw-misc'
 
 /** What a request's stop reason looks like: a tool call, a finished answer, or trouble */
 export function stopReasonColor(stopReason: string): string {
@@ -38,23 +40,26 @@ export function drawHeartbeats(
 
     if (agent.recentSteps) {
       for (const step of agent.recentSteps) {
-        const progress = (simTime - step.time) / HEARTBEAT.duration
-        if (progress < 0 || progress >= 1) continue
         const size = pulseSize(step.outputTokens)
         const travel = HEARTBEAT.minTravel + size * (HEARTBEAT.maxTravel - HEARTBEAT.minTravel)
-        const eased = 1 - (1 - progress) ** 3
         const color = stopReasonColor(step.stopReason)
+        // A hexagon like the node it leaves, echoed once per effort level above medium
+        const echoes = Math.max(0, (effortLevel(step.effort) ?? 2) - 2)
+        for (let echo = 0; echo <= echoes; echo++) {
+          const progress = (simTime - step.time - echo * HEARTBEAT.echoDelay) / HEARTBEAT.duration
+          if (progress < 0 || progress >= 1) continue
+          const eased = 1 - (1 - progress) ** 3
 
-        ctx.save()
-        ctx.globalAlpha = agent.opacity * HEARTBEAT.maxAlpha * (1 - progress)
-        ctx.beginPath()
-        ctx.arc(agent.x, agent.y, r + HEARTBEAT.startOffset + eased * travel, 0, Math.PI * 2)
-        ctx.strokeStyle = color
-        ctx.lineWidth = Math.max(0.5, HEARTBEAT.maxLineWidth * (0.4 + 0.6 * size) * (1 - progress))
-        ctx.shadowColor = color
-        ctx.shadowBlur = 8 * (1 - progress)
-        ctx.stroke()
-        ctx.restore()
+          ctx.save()
+          ctx.globalAlpha = agent.opacity * HEARTBEAT.maxAlpha * (1 - progress) * 0.55 ** echo
+          drawHexagon(ctx, agent.x, agent.y, r + HEARTBEAT.startOffset + eased * travel)
+          ctx.strokeStyle = color
+          ctx.lineWidth = Math.max(0.5, HEARTBEAT.maxLineWidth * (0.4 + 0.6 * size) * (1 - progress))
+          ctx.shadowColor = color
+          ctx.shadowBlur = 8 * (1 - progress)
+          ctx.stroke()
+          ctx.restore()
+        }
       }
     }
 
