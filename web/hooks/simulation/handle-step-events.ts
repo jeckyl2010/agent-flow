@@ -1,0 +1,85 @@
+import type { Agent, AgentSpend, ModelStepPulse } from '@/lib/agent-types'
+import { stepCost, cacheHitRatio, type StepUsage } from '@/lib/model-pricing'
+import { HEARTBEAT } from '@/lib/canvas-constants'
+import { asString } from './types'
+import type { MutableEventState } from './process-event'
+
+function asUsage(v: unknown): StepUsage | undefined {
+  if (!v || typeof v !== 'object') return undefined
+  const u = v as Record<string, unknown>
+  const n = (k: string) => (typeof u[k] === 'number' ? u[k] as number : 0)
+  return {
+    input_tokens: n('input_tokens'),
+    output_tokens: n('output_tokens'),
+    cache_read_input_tokens: n('cache_read_input_tokens'),
+    cache_creation_input_tokens: n('cache_creation_input_tokens'),
+  }
+}
+
+/** The agent's usage so far as the relay totals it, per model: `{ steps, byModel: [{ model, ...usage }] }` */
+function spendFromTotals(v: unknown, isComplete: boolean): Omit<AgentSpend, 'lastCacheHit'> | undefined {
+  if (!v || typeof v !== 'object') return undefined
+  const { steps, byModel } = v as { steps?: unknown; byModel?: unknown }
+  if (typeof steps !== 'number' || !Array.isArray(byModel)) return undefined
+  const spend = { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, steps, isComplete }
+  for (const entry of byModel) {
+    const usage = asUsage(entry)
+    if (!usage) continue
+    const model = typeof (entry as { model?: unknown }).model === 'string' ? (entry as { model: string }).model : undefined
+    spend.cost += stepCost(usage, model)
+    spend.input += usage.input_tokens
+    spend.output += usage.output_tokens
+    spend.cacheRead += usage.cache_read_input_tokens
+    spend.cacheWrite += usage.cache_creation_input_tokens
+  }
+  return spend
+}
+
+/** Adds one request to what the agent had: for events that carry no totals (the demo scenario) */
+function addStep(prev: AgentSpend | undefined, usage: StepUsage, cost: number): Omit<AgentSpend, 'lastCacheHit'> {
+  return {
+    cost: (prev?.cost ?? 0) + cost,
+    input: (prev?.input ?? 0) + usage.input_tokens,
+    output: (prev?.output ?? 0) + usage.output_tokens,
+    cacheRead: (prev?.cacheRead ?? 0) + usage.cache_read_input_tokens,
+    cacheWrite: (prev?.cacheWrite ?? 0) + usage.cache_creation_input_tokens,
+    steps: (prev?.steps ?? 0) + 1,
+    isComplete: prev?.isComplete ?? true,
+  }
+}
+
+/** One model request the API measured (the agent-flow-bridge mod): the agent's spend, and a pulse
+ *  for its heartbeat; the session's cost goes on the main agent. */
+export function handleModelStep(
+  payload: Record<string, unknown>,
+  currentTime: number,
+  state: MutableEventState,
+): void {
+  const agentName = asString(payload.agent)
+  const agent = state.agents.get(agentName)
+  const usage = asUsage(payload.usage)
+  if (!agent || !usage) return
+
+  const model = typeof payload.model === 'string' ? payload.model : agent.model
+  const cost = stepCost(usage, model)
+  const totals = spendFromTotals(payload.totals, payload.isComplete === true) ?? addStep(agent.spend, usage, cost)
+  const spend: AgentSpend = { ...totals, lastCacheHit: cacheHitRatio(usage) ?? agent.spend?.lastCacheHit }
+  const pulse: ModelStepPulse = {
+    time: currentTime,
+    outputTokens: usage.output_tokens,
+    stopReason: typeof payload.stopReason === 'string' ? payload.stopReason : '',
+    cost,
+  }
+  const recentSteps = [...(agent.recentSteps ?? []), pulse].slice(-HEARTBEAT.maxPulses)
+  state.agents.set(agentName, { ...agent, spend, recentSteps })
+
+  if (typeof payload.sessionCostUsd === 'number') {
+    const main = findMain(state.agents)
+    if (main) state.agents.set(main.id, { ...main, sessionCostUsd: payload.sessionCostUsd })
+  }
+}
+
+function findMain(agents: Map<string, Agent>): Agent | undefined {
+  for (const a of agents.values()) if (a.isMain) return a
+  return undefined
+}

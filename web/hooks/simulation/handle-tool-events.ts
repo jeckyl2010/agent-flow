@@ -115,7 +115,8 @@ export function handleToolCallEnd(
       state: isError ? 'error' : 'thinking',
       currentTool: undefined,
       pendingPermission: undefined, // allowed, or denied: either way no longer waiting
-      tokensUsed: agent.tokensUsed + (tokenCost ?? 0),
+      // A measured count already includes the result; the next measurement moves it
+      tokensUsed: agent.isTokensMeasured ? agent.tokensUsed : agent.tokensUsed + (tokenCost ?? 0),
     })
 
     const toolState: 'error' | 'complete' = isError ? 'error' : 'complete'

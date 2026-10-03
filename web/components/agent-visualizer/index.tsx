@@ -23,6 +23,7 @@ import { COLORS } from "@/lib/colors"
 import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar } from "./top-bar"
+import { sessionCosts } from "@/lib/session-costs"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 
 export function AgentVisualizer() {
@@ -201,10 +202,11 @@ export function AgentVisualizer() {
 
   useKeyboardShortcuts(keyboardActions)
 
-  const totalTokens = useMemo(() => {
-    let sum = 0
-    for (const a of agents.values()) sum += a.tokensUsed
-    return sum
+  const { totalTokens, totalCost, isCostEstimate } = useMemo(() => {
+    let tokens = 0
+    for (const a of agents.values()) tokens += a.tokensUsed
+    const { total } = sessionCosts(agents)
+    return { totalTokens: tokens, totalCost: total.cost, isCostEstimate: !total.isExact }
   }, [agents])
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
@@ -410,6 +412,8 @@ export function AgentVisualizer() {
         connectionStatus={bridge.connectionStatus}
         agentCount={agents.size}
         totalTokens={totalTokens}
+        totalCost={totalCost}
+        isCostEstimate={isCostEstimate}
         showFileAttention={showFileAttention}
         showTranscript={showTranscript}
         showCostOverlay={showCostOverlay}

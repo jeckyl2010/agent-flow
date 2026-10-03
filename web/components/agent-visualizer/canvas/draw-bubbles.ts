@@ -1,7 +1,10 @@
 import { Agent, NODE } from '@/lib/agent-types'
 import { COLORS, withAlpha } from '@/lib/colors'
-import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW } from '@/lib/canvas-constants'
-import { bubbleAlpha } from './bubble-utils'
+import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, BUBBLE_CURSOR_BLINK_S, AGENT_DRAW, BUBBLE_DRAW } from '@/lib/canvas-constants'
+import { bubbleAlpha, revealedChars } from './bubble-utils'
+
+/** Drawn after the text of a bubble that is still being written */
+const CURSOR = '\u258D'
 import { measureTextCached } from './render-cache'
 
 /** World-space bubbles attached to agents (used when zoomed in) */
@@ -37,17 +40,27 @@ export function drawMessageBubblesWorld(
 
       const font = `${style.fontSize}px monospace`
       ctx.font = font
-      // Cache wrapped lines on the bubble to avoid re-wrapping every frame
+      // A streamed bubble types out the text that just arrived
+      const shown = revealedChars(bubble, time)
+      const isTyping = shown < text.length
+      const hasCursor = isTyping || bubble.isStreaming === true
       let allLines: string[]
-      if (bubble._cachedWrappedLines && bubble._cachedWrappedFont === font) {
+      if (isTyping) {
+        allLines = wrapText(ctx, text.slice(0, shown), BUBBLE_MAX_W - 16)
+      } else if (bubble._cachedWrappedLines && bubble._cachedWrappedFont === font) {
+        // Cache wrapped lines on the bubble to avoid re-wrapping every frame
         allLines = bubble._cachedWrappedLines
       } else {
         allLines = wrapText(ctx, text, BUBBLE_MAX_W - 16)
         bubble._cachedWrappedLines = allLines
         bubble._cachedWrappedFont = font
       }
-      const truncated = allLines.length > BUBBLE_MAX_LINES
-      const lines = truncated ? allLines.slice(0, BUBBLE_MAX_LINES) : allLines
+      const overflows = allLines.length > BUBBLE_MAX_LINES
+      // While it is written the newest lines show, so the fresh text stays in view
+      const truncated = overflows && !hasCursor
+      const lines = !overflows ? allLines
+        : hasCursor ? allLines.slice(-BUBBLE_MAX_LINES)
+        : allLines.slice(0, BUBBLE_MAX_LINES)
 
       const bubbleW = Math.min(BUBBLE_MAX_W, Math.max(...lines.map(l => measureTextCached(ctx, l))) + style.padding * 2 + 4)
       const bubbleH = style.headerH + lines.length * style.lineH + style.padding + (truncated ? style.lineH * 0.8 : 0)
@@ -89,6 +102,13 @@ export function drawMessageBubblesWorld(
       ctx.fillStyle = textColor + (isThinking ? 'b0' : '')
       for (let i = 0; i < lines.length; i++) {
         ctx.fillText(lines[i], anchorX + style.padding, cursorY + style.headerH + i * style.lineH)
+      }
+      // Solid while typing; blinking while it waits for more
+      if (hasCursor && (isTyping || Math.floor(time / BUBBLE_CURSOR_BLINK_S) % 2 === 0)) {
+        const last = lines.length - 1
+        const cursorX = anchorX + style.padding + measureTextCached(ctx, lines[last] ?? '') + 1
+        ctx.fillStyle = textColor
+        ctx.fillText(CURSOR, Math.min(cursorX, anchorX + bubbleW - style.padding), cursorY + style.headerH + last * style.lineH)
       }
       if (truncated) {
         ctx.fillStyle = textColor + '80'

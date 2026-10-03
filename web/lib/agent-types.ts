@@ -18,6 +18,8 @@ export interface Agent {
   state: AgentState
   parentId: string | null
   tokensUsed: number
+  /** tokensUsed is the API's own count (the agent-flow-bridge mod), not an estimate from the transcript */
+  isTokensMeasured?: boolean
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number
@@ -44,12 +46,50 @@ export interface Agent {
   scale: number
   /** Queued text bubbles shown on canvas — newest pushed to end */
   messageBubbles: MessageBubble[]
+  /** What the API measured for this agent's model requests, summed (the agent-flow-bridge mod) */
+  spend?: AgentSpend
+  /** The agent's latest model requests, newest last: the heartbeat drawn around its node */
+  recentSteps?: ModelStepPulse[]
+  /** The main agent: what the whole session has cost, as Claude Code's /cost totals it */
+  sessionCostUsd?: number
+}
+
+export interface AgentSpend {
+  /** $, priced per model from each request's usage */
+  cost: number
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  steps: number
+  /** The share of the latest request's input the prompt cache served, 0 to 1 */
+  lastCacheHit?: number
+  /** Every request the agent made is counted: it was watched from its start */
+  isComplete: boolean
+}
+
+/** One model request, as the heartbeat shows it */
+export interface ModelStepPulse {
+  /** Simulation time it was reported */
+  time: number
+  outputTokens: number
+  /** Why the model stopped: `tool_use`, `end_turn`, `max_tokens`, `compaction`, `refusal`, … */
+  stopReason: string
+  cost: number
 }
 
 export interface MessageBubble {
   text: string
   time: number
   role: 'assistant' | 'thinking' | 'user'
+  /** The streamed block this bubble shows, while its text still grows in place */
+  streamId?: string
+  /** While streaming: more text is coming; the bubble types out what arrived and shows a cursor */
+  isStreaming?: boolean
+  /** Characters already shown when the latest text arrived, and when (simulation time): the
+   *  typing animation runs from there to the full text */
+  revealFrom?: number
+  revealAt?: number
   /** Cached bubble dimensions (set during draw, used by hit-detection) */
   _cachedW?: number
   _cachedH?: number
@@ -158,6 +198,7 @@ export interface SimulationEvent {
     | 'message'
     | 'context_update'
     | 'model_detected'
+    | 'model_step'
     | 'tool_call_start'
     | 'tool_call_end'
     | 'subagent_dispatch'

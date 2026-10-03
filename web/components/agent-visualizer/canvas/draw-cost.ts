@@ -1,24 +1,10 @@
 import { Agent, ToolCallNode, NODE } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { COST_RATE, MODEL_FAMILY_COST, COST_DRAW, COST_PANEL, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
+import { COST_DRAW, COST_PANEL, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
+import { modelPrice } from '@/lib/model-pricing'
+import { sessionCosts, estimatedCost, formatCost } from '@/lib/session-costs'
 import { formatTokens } from '@/lib/utils'
 import { truncateText } from './draw-misc'
-
-/** Blended $/M-token rate for a model ID — first matching family wins,
- *  unknown models fall back to the Sonnet-class rate. */
-export function modelCostRate(model?: string): number {
-  if (model) {
-    const id = model.toLowerCase()
-    for (const { pattern, rate } of MODEL_FAMILY_COST) {
-      if (pattern.test(id)) return rate
-    }
-  }
-  return COST_RATE
-}
-
-export function agentCost(tokensUsed: number, model?: string): number {
-  return (tokensUsed / 1_000_000) * modelCostRate(model)
-}
 
 /** Tool name -> color for mini cost bar */
 export function toolTypeColor(toolName: string): string {
@@ -47,17 +33,20 @@ export function drawCostLabels(
   toolCalls: Map<string, ToolCallNode>,
 ) {
   const toolsByAgent = groupToolsByAgent(toolCalls)
+  const costs = sessionCosts(agents).byAgent
 
-  for (const [, agent] of agents) {
+  for (const [id, agent] of agents) {
     if (agent.opacity < MIN_VISIBLE_OPACITY) continue
-    const cost = agentCost(agent.tokensUsed, agent.model)
+    const figure = costs.get(id)
+    if (!figure) continue
+    const cost = figure.cost
     if (cost < COST_DRAW.minDisplayCost) continue
 
     const r = agent.isMain ? NODE.radiusMain : NODE.radiusSub
     const pillY = agent.y - r - COST_DRAW.pillYOffset
 
-    // Floating cost pill
-    const label = `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`
+    // Floating cost pill: `~` for an estimate
+    const label = formatCost(figure, cost < 0.01 ? 4 : 3)
     ctx.font = 'bold 9px monospace'
     const labelW = ctx.measureText(label).width
     const pillW = labelW + COST_DRAW.pillPadding
@@ -125,6 +114,19 @@ export function drawCostLabels(
   }
 }
 
+/** Across the agents the API measured: the share of input the prompt cache served, and the $ it saved */
+function cacheSummary(agents: Agent[]): { hitRatio: number; saved: number } | undefined {
+  let read = 0, inputs = 0, saved = 0
+  for (const a of agents) {
+    if (!a.spend) continue
+    read += a.spend.cacheRead
+    inputs += a.spend.input + a.spend.cacheRead + a.spend.cacheWrite
+    const p = modelPrice(a.model)
+    saved += a.spend.cacheRead * (p.input - p.cacheRead) / 1_000_000
+  }
+  return inputs > 0 ? { hitRatio: read / inputs, saved } : undefined
+}
+
 export function drawCostSummaryPanel(
   ctx: CanvasRenderingContext2D,
   agents: Map<string, Agent>,
@@ -137,10 +139,15 @@ export function drawCostSummaryPanel(
   const totalTokens = agentList.reduce((s, a) => s + a.tokensUsed, 0)
 
   // Per-agent breakdown sorted by cost desc
+  const costs = sessionCosts(agents)
   const agentBreakdown = agentList
-    .map(a => ({ name: a.name, tokens: a.tokensUsed, cost: agentCost(a.tokensUsed, a.model) }))
+    .map(a => {
+      const figure = costs.byAgent.get(a.id) ?? { cost: 0, isExact: false }
+      return { name: a.name, tokens: a.tokensUsed, cost: figure.cost, figure }
+    })
     .sort((a, b) => b.cost - a.cost)
-  const totalCost = agentBreakdown.reduce((s, a) => s + a.cost, 0)
+  const totalCost = costs.total.cost
+  const cache = cacheSummary(agentList)
 
   // Per-tool-type breakdown, costed at the owning agent's model rate
   const toolBreakdown = new Map<string, { tokens: number; cost: number }>()
@@ -148,7 +155,7 @@ export function drawCostSummaryPanel(
     if (tc.tokenCost) {
       const entry = toolBreakdown.get(tc.toolName) || { tokens: 0, cost: 0 }
       entry.tokens += tc.tokenCost
-      entry.cost += agentCost(tc.tokenCost, agents.get(tc.agentId)?.model)
+      entry.cost += estimatedCost(tc.tokenCost, agents.get(tc.agentId)?.model)
       toolBreakdown.set(tc.toolName, entry)
     }
   }
@@ -167,7 +174,8 @@ export function drawCostSummaryPanel(
   const sectionGap = COST_PANEL.sectionGap
   const agentRows = Math.min(agentBreakdown.length, COST_PANEL.maxRows)
   const toolRows = Math.min(toolList.length, COST_PANEL.maxRows)
-  const panelH = headerH + (agentRows * lineH) + sectionGap + (toolRows > 0 ? 14 + toolRows * lineH : 0) + 12
+  const cacheRowH = cache ? lineH : 0
+  const panelH = headerH + cacheRowH + (agentRows * lineH) + sectionGap + (toolRows > 0 ? 14 + toolRows * lineH : 0) + 12
 
   ctx.save()
 
@@ -187,13 +195,25 @@ export function drawCostSummaryPanel(
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.fillStyle = COLORS.costText
-  ctx.fillText(`$${totalCost.toFixed(3)}`, panelX + COST_PANEL.contentPadding, y)
+  const totalLabel = formatCost(costs.total, 3)
+  ctx.fillText(totalLabel, panelX + COST_PANEL.contentPadding, y)
 
   ctx.font = '9px monospace'
   ctx.fillStyle = COLORS.textMuted
-  ctx.fillText(`${formatTokens(totalTokens)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(`$${totalCost.toFixed(3)}`).width + 14, y + 2)
+  ctx.fillText(`${formatTokens(totalTokens)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(totalLabel).width + 14, y + 2)
 
   y += headerH
+
+  // Prompt cache: the share of measured input it served, and what that saved over full-price input
+  if (cache) {
+    ctx.font = '8px monospace'
+    ctx.fillStyle = COLORS.costTextDim
+    ctx.fillText(
+      `cache ${Math.round(cache.hitRatio * 100)}% · saved $${cache.saved.toFixed(3)}`,
+      panelX + COST_PANEL.contentPadding, y,
+    )
+    y += cacheRowH
+  }
 
   // Per-agent breakdown
   const barW = panelW - COST_PANEL.contentPadding * 2
@@ -224,7 +244,7 @@ export function drawCostSummaryPanel(
     // Cost
     ctx.textAlign = 'right'
     ctx.fillStyle = COLORS.costText
-    ctx.fillText(`$${a.cost.toFixed(3)}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+    ctx.fillText(formatCost(a.figure, 3), panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
     y += lineH
   }

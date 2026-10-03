@@ -11,6 +11,7 @@ import { handleAgentSpawn, handleAgentComplete, handleAgentIdle, handlePermissio
 import { handleToolCallStart, handleToolCallEnd } from './handle-tool-events'
 import { handleMessage, handleContextUpdate } from './handle-message-events'
 import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-events'
+import { handleModelStep } from './handle-step-events'
 
 export interface ProcessEventContext {
   syncForceSimulation: (agents: Map<string, Agent>, edges: Edge[]) => void
@@ -79,6 +80,7 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         case 'tool_call_end':     handleToolCallEnd(event.payload, prev.currentTime, state, ctx); break
         case 'message':           handleMessage(event.payload, prev.currentTime, state); break
         case 'context_update':    handleContextUpdate(event.payload, state); break
+        case 'model_step':        handleModelStep(event.payload, prev.currentTime, state); break
         case 'subagent_dispatch': handleSubagentDispatch(event.payload, prev.currentTime, state); break
         case 'subagent_return':   handleSubagentReturn(event.payload, prev.currentTime, state); break
         case 'permission_requested': handlePermissionRequested(event.payload, prev.currentTime, state, ctx); break
