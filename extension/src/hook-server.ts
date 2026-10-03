@@ -34,6 +34,9 @@ interface HookPayload {
   tool_input?: Record<string, unknown>
   tool_use_id?: string
   tool_response?: string | { content: string } | Array<{ text?: string }>
+  // PostToolUseFailure: the failure is in `error`, not `tool_response`
+  error?: string
+  is_interrupt?: boolean
   // SubagentStart / SubagentStop
   agent_id?: string
   agent_type?: string
@@ -241,6 +244,10 @@ export class HookServer implements vscode.Disposable {
   private handlePostToolUseFailure(payload: HookPayload): void {
     const agentName = this.resolveAgentName(payload)
     const toolName = payload.tool_name || 'unknown'
+    // Claude Code sends the failure as `error`; `tool_response` is kept for older versions that sent it there.
+    const reason = typeof payload.error === 'string' ? payload.error
+      : payload.tool_response ? summarizeResult(payload.tool_response) : ''
+    const label = payload.is_interrupt ? '[INTERRUPTED]' : '[FAILED]'
 
     this.emit({
       time: this.elapsedSeconds(payload.session_id),
@@ -248,8 +255,11 @@ export class HookServer implements vscode.Disposable {
       payload: {
         agent: agentName,
         tool: toolName,
-        result: `[FAILED] ${(payload.tool_response ? summarizeResult(payload.tool_response) : '').slice(0, FAILED_RESULT_MAX)}`,
+        result: `${label} ${reason.slice(0, FAILED_RESULT_MAX)}`,
         tokenCost: 0,
+        // The UI shows a failure in its error state; an interrupt was the user's choice, not a failure.
+        isError: !payload.is_interrupt,
+        errorMessage: reason.slice(0, FAILED_RESULT_MAX) || undefined,
       },
     }, payload.session_id)
   }
