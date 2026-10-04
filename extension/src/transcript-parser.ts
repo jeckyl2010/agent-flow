@@ -26,6 +26,7 @@ import { summarizeInput, summarizeResult, extractInputData, detectError, buildDi
 import { estimateTokensFromContent, estimateTokensFromText } from './token-estimator'
 import { createLogger } from './logger'
 import { isModSession } from './mod-sessions'
+import { recordTranscriptUsage, parseTranscriptStep, modelStepPayload } from './transcript-usage'
 
 const log = createLogger('TranscriptParser')
 
@@ -153,6 +154,19 @@ export class TranscriptParser {
         type: 'model_detected',
         payload: { agent: agentName, model: msg.model },
       }, sessionId)
+    }
+
+    // The request's usage, for a session the bridge mod doesn't report (it sends its own)
+    if (session && !(sessionId && isModSession(sessionId))) {
+      const step = recordTranscriptUsage(parsed, agentName, session)
+      const totals = session.usageTotals.get(agentName)
+      if (step && totals) {
+        this.delegate.emit({
+          time: this.delegate.elapsed(sessionId),
+          type: 'model_step',
+          payload: modelStepPayload(agentName, step, totals),
+        }, sessionId)
+      }
     }
 
     // Dedup set for messages (context compression replays old messages)
@@ -505,6 +519,7 @@ export class TranscriptParser {
               session.contextBreakdown.userMessages += estimateTokensFromText(text)
             }
           }
+          recordTranscriptUsage(entry, ORCHESTRATOR_NAME, session)
           // Extract model from first assistant message
           if (entry.type === 'assistant' && entry.message?.model && !session.model) {
             session.model = entry.message.model
@@ -526,6 +541,23 @@ export class TranscriptParser {
 
   /** Emit message events for pre-existing transcript entries (catch-up on session detection).
    *  Only emits the last user message (the current turn), not the full history. */
+  /** An agent's usage from before it was watched, as one step carrying its totals: the request
+   *  shown is the latest of `entries`. Nothing for a session the bridge mod reports. */
+  emitUsageCatchUp(agentName: string, entries: readonly unknown[], session: WatchedSession, sessionId: string): void {
+    const totals = session.usageTotals.get(agentName)
+    if (!totals || isModSession(sessionId)) return
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const found = parseTranscriptStep(entries[i])
+      if (!found) continue
+      this.delegate.emit({
+        time: this.delegate.elapsed(sessionId),
+        type: 'model_step',
+        payload: modelStepPayload(agentName, found.step, totals),
+      }, sessionId)
+      return
+    }
+  }
+
   emitCatchUpEntries(entries: TranscriptEntry[], session: WatchedSession, sessionId: string): void {
     // Find the last user entry — that's the current turn
     let lastUserIndex = -1

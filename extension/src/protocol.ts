@@ -166,6 +166,20 @@ export interface SubagentState {
 }
 
 /** State tracked for a single watched Claude Code session */
+/** One model request's token usage, as the API reports it */
+export interface ModelUsage {
+  input_tokens: number
+  output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+}
+
+/** An agent's model requests so far: how many, and their usage summed per model */
+export interface UsageTotals {
+  steps: number
+  byModel: Map<string, ModelUsage>
+}
+
 export interface WatchedSession {
   sessionId: string
   filePath: string
@@ -194,6 +208,10 @@ export interface WatchedSession {
   modelDetectedAgents: Map<string, string>
   permissionTimer: NodeJS.Timeout | null
   permissionEmitted: boolean
+  /** Ids of the model requests whose usage the transcript has reported, each counted once */
+  usageSeenIds: Set<string>
+  /** Each agent's model usage as its transcript records it, summed */
+  usageTotals: Map<string, UsageTotals>
   contextBreakdown: {
     systemPrompt: number
     userMessages: number

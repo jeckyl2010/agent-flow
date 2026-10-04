@@ -396,6 +396,8 @@ export class SessionWatcher implements AgentSessionWatcher {
       pendingToolCalls: new Map(),
       seenToolUseIds: new Set(),
       seenMessageHashes: new Set(),
+      usageSeenIds: new Set(),
+      usageTotals: new Map(),
       sessionDetected: false,
       sessionCompleted: false,
       lastActivityTime: this.newestMtime(filePath, sessionId),
@@ -444,6 +446,9 @@ export class SessionWatcher implements AgentSessionWatcher {
 
     // Emit initial context breakdown from prescan so the webview shows accumulated tokens
     this.emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
+
+    // What the session's requests used so far: the cost, heartbeat and environmental impacts
+    this.parser.emitUsageCatchUp(ORCHESTRATOR_NAME, catchUpEntries, session, sessionId)
 
     // Emit catch-up messages for content that was already in the file when we detected
     // the session (e.g. the first user message). These were pre-scanned for dedup/tokens

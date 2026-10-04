@@ -18,6 +18,7 @@ import { TranscriptParser } from './transcript-parser'
 import { handlePermissionDetection, PermissionDetectionDelegate } from './permission-detection'
 import { createLogger } from './logger'
 import { isModSession } from './mod-sessions'
+import { recordTranscriptUsage } from './transcript-usage'
 
 const log = createLogger('SubagentWatcher')
 
@@ -101,6 +102,7 @@ function startWatchingSubagentFile(
   // Pre-scan existing content for dedup IDs and determine if the subagent
   // is still active (has unmatched tool_use blocks = pending work).
   const pendingToolUseIds = new Set<string>()
+  const existingEntries: unknown[] = []
   try {
     const stat = fs.statSync(filePath)
     if (stat.size > 0) {
@@ -109,6 +111,8 @@ function startWatchingSubagentFile(
         if (!line.trim()) continue
         try {
           const raw: unknown = JSON.parse(line.trim())
+          existingEntries.push(raw)
+          recordTranscriptUsage(raw, agentName, session)
           const entry = raw as { message?: { content?: Array<{ type: string; id?: string; tool_use_id?: string }> } }
           if (raw && typeof raw === 'object' && entry.message && Array.isArray(entry.message.content)) {
             for (const block of entry.message.content) {
@@ -135,6 +139,8 @@ function startWatchingSubagentFile(
     session.spawnedSubagents.add(agentName)
     emitSubagentSpawn(delegate, ORCHESTRATOR_NAME, agentName, agentName, sessionId)
   }
+  // Its usage so far; a subagent spawned later carries it in its first step's totals
+  if (state.spawnEmitted) parser.emitUsageCatchUp(agentName, existingEntries, session, sessionId)
 
   // Watch for new content
   try {

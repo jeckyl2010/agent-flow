@@ -1,6 +1,6 @@
 import * as http from 'http'
 import * as vscode from 'vscode'
-import { AgentEvent, emitSubagentSpawn } from './protocol'
+import { AgentEvent, emitSubagentSpawn, type ModelUsage, type UsageTotals } from './protocol'
 import {
   ORCHESTRATOR_NAME, PREVIEW_MAX, RESULT_MAX, MESSAGE_MAX, resolveSubagentChildName,
   SESSION_ID_DISPLAY, FAILED_RESULT_MAX, HOOK_MAX_BODY_SIZE,
@@ -70,13 +70,6 @@ interface HookPayload {
   [key: string]: unknown
 }
 
-interface ModelUsage {
-  input_tokens: number
-  output_tokens: number
-  cache_read_input_tokens: number
-  cache_creation_input_tokens: number
-}
-
 /** What the hook server remembers per session — cleaned up on SessionEnd to prevent unbounded growth */
 interface SessionHookState {
   startTime: number
@@ -96,7 +89,7 @@ interface SessionHookState {
   models: Map<string, string>
   /** Each agent's measured usage so far (by name), per model: sent whole with every request, so
    *  a page that connects late still shows it all */
-  usageTotals: Map<string, { steps: number; byModel: Map<string, ModelUsage> }>
+  usageTotals: Map<string, UsageTotals>
 }
 
 export class HookServer implements vscode.Disposable {
