@@ -247,6 +247,4 @@ export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
   : WITH_MODEL_STEPS
 
-export const MOCK_DURATION = MOCK_SCENARIO.length > 0
-  ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time + 10
-  : 0
+export const MOCK_DURATION = (MOCK_SCENARIO.at(-1)?.time ?? -10) + 10

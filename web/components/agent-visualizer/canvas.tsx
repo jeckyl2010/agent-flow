@@ -7,7 +7,8 @@ import { getStateColor } from '@/lib/colors'
 import { ANIM_SPEED, FRAME_RATE, PERF_OVERLAY, PERF_OVERLAY_ENABLED } from '@/lib/canvas-constants'
 import { frameLimiter } from '@/lib/frame-limiter'
 import { activityTracker } from '@/lib/activity'
-import { BloomRenderer } from './bloom-renderer'
+import { BloomRenderer, canvasFilterBlurs } from './bloom-renderer'
+import { GlBloom } from './gl-bloom'
 import { createDepthParticles, updateDepthParticles, drawBackground } from './background-layer'
 import {
   type VisualEffect,
@@ -59,7 +60,8 @@ export function AgentCanvas({
   const animationRef = useRef<number>(0)
   const timeRef = useRef(0)
   const simTimeRef = useRef(0)
-  const bloomRef = useRef<BloomRenderer | null>(null)
+  const bloomRef = useRef<Pick<BloomRenderer, 'resize' | 'apply'> | null>(null)
+  const glBloomRef = useRef<GlBloom | null>(null)
   const depthParticlesRef = useRef<DepthParticle[]>([])
   const lastFrameTimeRef = useRef(0)
   const dprRef = useRef(1)
@@ -130,9 +132,15 @@ export function AgentCanvas({
   // ─── Setup ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    bloomRef.current = new BloomRenderer(0.5)
+    // On the GPU, laid over the canvas, where the canvas blurs with filters: there the 2D bloom
+    // is the most of the frame's GPU time. Safari's canvas doesn't, and its 2D bloom (shrinking
+    // and enlarging) is cheap, cheaper than blending an overlay as it composites the page
+    const gl = canvasFilterBlurs() ? GlBloom.create(0.5) : null
+    if (gl) containerRef.current?.appendChild(gl.canvas)
+    glBloomRef.current = gl
+    bloomRef.current = gl ?? new BloomRenderer(0.5)
     depthParticlesRef.current = createDepthParticles(dimensions.width, dimensions.height)
-    return () => { bloomRef.current = null }
+    return () => { gl?.dispose(); glBloomRef.current = bloomRef.current = null }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- particles created once, resized by draw loop
   }, [])
 
@@ -152,6 +160,11 @@ export function AgentCanvas({
     observer.observe(container)
     return () => observer.disconnect()
   }, [])
+
+  // While paused (the time horizon over it), the overlay would still be blended every frame
+  useEffect(() => {
+    if (glBloomRef.current) glBloomRef.current.canvas.style.visibility = paused ? 'hidden' : ''
+  }, [paused])
 
   // ─── Detect state changes → spawn effects ──────────────────────────────
 
@@ -196,7 +209,7 @@ export function AgentCanvas({
   const isActive = useCallback((timestamp: number): boolean => {
     const s = simulationRef.current
     return activityRef.current.active(timestamp, {
-      lastEvent: s.eventLog[s.eventLog.length - 1],
+      lastEvent: s.eventLog.at(-1),
       particles: s.particles.length,
       effects: effectsRef.current.length,
       dragging: drawPropsRef.current.isDragging,
@@ -344,7 +357,7 @@ export function AgentCanvas({
           perf.fps = perf.frames
           perf.frames = 0
           perf.lastFpsUpdate = frameEnd
-          const sorted = [...perf.frameTimes].sort((a, b) => a - b)
+          const sorted = perf.frameTimes.toSorted((a, b) => a - b)
           perf.p95 = sorted[Math.floor(sorted.length * 0.95)] || 0
         }
         const po = PERF_OVERLAY

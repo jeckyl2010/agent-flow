@@ -145,7 +145,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
     if (end <= t) return
     const kind = kindNow()
     totals[kind] += end - t
-    const last = segments[segments.length - 1]
+    const last = segments.at(-1)
     if (last && last.kind === kind && last.end === t) last.end = end
     else segments.push({ kind, start: t, end })
     t = end
@@ -157,7 +157,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
     turnLog.push({ start: time, prompt, work: 0, requests: 0, tools: 0, outputTokens: 0 })
   }
   const endTurn = (time: number) => {
-    const turn = turnLog[turnLog.length - 1]
+    const turn = turnLog.at(-1)
     if (inTurn && turn && turn.end === undefined) turn.end = time
     inTurn = false
     waitingPermission = false
@@ -217,7 +217,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
     if (e.type === 'model_step') {
       const output = num(((p.usage ?? {}) as Record<string, unknown>).output_tokens)
       emissions.push({ time: e.time, outputTokens: output })
-      const turn = inTurn ? turnLog[turnLog.length - 1] : undefined
+      const turn = inTurn ? turnLog.at(-1) : undefined
       if (turn) { turn.requests++; turn.outputTokens += output }
     }
     const agent = str(p.agent) || str(p.name)
@@ -237,7 +237,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
         const starts = running.get(tool) ?? []
         if (starts.some(s => e.time - s < DUPLICATE_START_S)) break
         running.set(tool, [...starts, e.time])
-        turnLog[turnLog.length - 1].tools++
+        turnLog.at(-1)!.tools++
         break
       }
       case 'tool_call_end': {

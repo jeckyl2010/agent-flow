@@ -263,7 +263,7 @@ export function AgentVisualizer() {
     if (bridge.selectedSessionId === id) {
       const remaining = bridge.sessions.filter(s => s.id !== id)
       if (remaining.length > 0) {
-        bridge.selectSession(remaining[remaining.length - 1].id)
+        bridge.selectSession(remaining.at(-1)!.id)
       }
     }
   }, [bridge])

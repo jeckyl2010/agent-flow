@@ -147,7 +147,7 @@ export function handleToolCallEnd(
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
       if (isError) {
-        const lastBlock = entry.blocks[entry.blocks.length - 1]
+        const lastBlock = entry.blocks.at(-1)
         if (lastBlock && !lastBlock.endTime) {
           lastBlock.color = COLORS.error
           lastBlock.label = `${toolName}: FAILED`

@@ -262,7 +262,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const result = computeNextFrame(prev, deltaTime, newTime, maxT, currentState, {
       useMockData,
       mockScenarioLength: MOCK_SCENARIO.length,
-      mockScenarioEndTime: MOCK_SCENARIO.length > 0 ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time : 0,
+      mockScenarioEndTime: MOCK_SCENARIO.at(-1)?.time ?? 0,
     })
 
     // Write to frameRef (canvas reads this every frame)

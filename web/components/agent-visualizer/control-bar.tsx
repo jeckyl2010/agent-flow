@@ -55,7 +55,7 @@ const EventMarkers = memo(function EventMarkers({ events, totalDuration, classNa
     : events
   // Position dots relative to the last event so they always span the full bar,
   // rather than compressing into a fraction when currentTime runs ahead of events
-  const lastEventTime = events.length > 0 ? events[events.length - 1].timestamp : 0
+  const lastEventTime = events.at(-1)?.timestamp ?? 0
   const effectiveDuration = lastEventTime > 0 ? lastEventTime : totalDuration
   return (
     <>

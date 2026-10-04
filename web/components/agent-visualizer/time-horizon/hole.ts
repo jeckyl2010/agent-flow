@@ -36,7 +36,7 @@ export function createHole(v: View) {
 
   /** Each request the session made escapes as a burst sized by what it wrote; a faint glow between */
   function drawRadiation(ctx: CanvasRenderingContext2D, h: TimeHorizon, dt: number) {
-    const latest = h.emissions.length ? h.emissions[h.emissions.length - 1].time : -Infinity
+    const latest = h.emissions.at(-1)?.time ?? -Infinity
     if (radiatedUntil === undefined || latest < radiatedUntil) radiatedUntil = latest
     for (const e of h.emissions) {
       if (e.time <= radiatedUntil) continue
