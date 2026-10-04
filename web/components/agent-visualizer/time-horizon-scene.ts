@@ -89,6 +89,39 @@ export function shipColor(model?: string): string {
 const hex = (a: number) => Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, '0')
 
 /**
+ * Strokes that share a style, gathered into one path each and drawn in one call:
+ * thousands of small strokes, each its own trip to the GPU with its own style, become a few
+ * dozen. Opacity is rounded to 1/24 steps and widths to a quarter pixel: no difference to the eye.
+ */
+class Batch {
+  private paths = new Map<string, { path: Path2D; color: string; alpha: number; width: number }>()
+
+  /** The path to add to for this style */
+  at(color: string, alpha: number, width = 0): Path2D {
+    const a = Math.round(Math.max(0, Math.min(1, alpha)) * 24) / 24
+    const w = Math.round(width * 4) / 4
+    const key = `${color}|${a}|${w}`
+    let entry = this.paths.get(key)
+    if (!entry) { entry = { path: new Path2D(), color, alpha: a, width: w }; this.paths.set(key, entry) }
+    return entry.path
+  }
+
+  stroke(ctx: CanvasRenderingContext2D) {
+    for (const { path, color, alpha, width } of this.paths.values()) {
+      if (alpha <= 0 || width <= 0) continue
+      ctx.strokeStyle = color + hex(alpha)
+      ctx.lineWidth = width
+      ctx.stroke(path)
+    }
+    this.paths.clear()
+  }
+
+}
+
+/** A segment into a batched path */
+const segment = (path: Path2D, x0: number, y0: number, x1: number, y1: number) => { path.moveTo(x0, y0); path.lineTo(x1, y1) }
+
+/**
  * Where now sits on the disk. Outside it, the session so far trails back to the rim; inside it,
  * the time still to come spirals in to the horizon, where the context window fills and the
  * session's detail is compacted away.
@@ -109,6 +142,9 @@ export function createScene(reducedMotion: boolean): Scene {
     u: Math.random(), offset: (Math.random() - 0.5) * 16, size: Math.random() * 1.6 + 0.5,
   }))
   const trail: Array<[number, number]> = []
+  /** Reused every frame: strokes and fills gathered by style, then drawn together */
+  const batch = new Batch()
+  const cores = new Batch()
   const photons: Photon[] = []
   const victims: Victim[] = []
   // Gas is born in clumps; orbiting faster inside than out, each clump shears into a filament
@@ -200,6 +236,7 @@ export function createScene(reducedMotion: boolean): Scene {
       const near = Math.max(0, 1 - (d - holeR) / (holeR * 3))
       // Smeared into the ring and gone as it crosses
       const vanishing = Math.min(1, (d - holeR * 1.05) / (holeR * 0.5))
+      // One circle at a time: circles have a fast path that a batched path of many would lose
       ctx.fillStyle = (s.warm ? COLORS.horizonLight : COLORS.holoBase) + hex(((0.12 + s.depth * 0.5) * twinkle + near * 0.4) * vanishing)
       ctx.beginPath()
       ctx.arc(x, y, s.size * (0.6 + s.depth * 0.6) * (1 + near * 0.8), 0, Math.PI * 2)
@@ -258,30 +295,46 @@ export function createScene(reducedMotion: boolean): Scene {
     ctx.globalCompositeOperation = 'source-over'
   }
 
+  /** The hex grid doesn't change from frame to frame: it's drawn once, and again only when the
+   *  view is resized or moves, then copied in, breathing as a whole */
+  let gridCache: { canvas: HTMLCanvasElement; key: string } | undefined
   function drawHexGrid(ctx: CanvasRenderingContext2D, w: number, hgt: number, now: number) {
-    const size = 46 * scale
-    const hh = size * Math.sqrt(3)
-    ctx.lineWidth = 0.5
-    for (let x = -size; x < w + size; x += size * 1.5) {
-      const col = Math.round(x / (size * 1.5))
-      for (let y = -hh; y < hgt + hh; y += hh) {
-        const yy = y + (col % 2 ? hh / 2 : 0)
-        const d = Math.hypot(x - cx, yy - cy) / (Math.max(w, hgt) * 0.55)
-        // Strongest in a band around the disk, fading at the edges and into the hole
-        const a = 0.07 * Math.max(0, 1 - Math.abs(d - 0.55) * 2.2) * (0.7 + 0.3 * Math.sin(now * 0.0008 + d * 6))
-        if (a < 0.008) continue
-        ctx.strokeStyle = COLORS.holoBase + hex(a)
-        ctx.beginPath()
-        for (let i = 0; i < 6; i++) {
-          const ang = (Math.PI / 3) * i
-          const px = x + size * 0.42 * Math.cos(ang), py = yy + size * 0.42 * Math.sin(ang)
-          if (i === 0) ctx.moveTo(px, py)
-          else ctx.lineTo(px, py)
+    const dpr = ctx.getTransform().a || 1
+    const key = `${w}|${hgt}|${dpr}|${scale.toFixed(3)}|${Math.round(cx)}|${Math.round(cy)}`
+    if (gridCache?.key !== key) {
+      const canvas = gridCache?.canvas ?? document.createElement('canvas')
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(hgt * dpr)
+      const g = canvas.getContext('2d')!
+      g.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const size = 46 * scale
+      const hh = size * Math.sqrt(3)
+      g.lineWidth = 0.5
+      for (let x = -size; x < w + size; x += size * 1.5) {
+        const col = Math.round(x / (size * 1.5))
+        for (let y = -hh; y < hgt + hh; y += hh) {
+          const yy = y + (col % 2 ? hh / 2 : 0)
+          const d = Math.hypot(x - cx, yy - cy) / (Math.max(w, hgt) * 0.55)
+          // Strongest in a band around the disk, fading at the edges and into the hole
+          const a = 0.07 * Math.max(0, 1 - Math.abs(d - 0.55) * 2.2)
+          if (a < 0.008) continue
+          const path = batch.at(COLORS.holoBase, a, 0.5)
+          for (let i = 0; i < 6; i++) {
+            const ang = (Math.PI / 3) * i
+            const px = x + size * 0.42 * Math.cos(ang), py = yy + size * 0.42 * Math.sin(ang)
+            if (i === 0) path.moveTo(px, py)
+            else path.lineTo(px, py)
+          }
+          path.closePath()
         }
-        ctx.closePath()
-        ctx.stroke()
       }
+      batch.stroke(g)
+      gridCache = { canvas, key }
     }
+    ctx.save()
+    ctx.globalAlpha = reducedMotion ? 0.85 : 0.75 + 0.25 * Math.sin(now * 0.0008)
+    ctx.drawImage(gridCache.canvas, 0, 0, w, hgt)
+    ctx.restore()
   }
 
   /** The timeline ribbon: only the half behind the hole, or only the half in front of it */
@@ -302,14 +355,12 @@ export function createScene(reducedMotion: boolean): Scene {
         const [x0, y0] = projected[i], [x1, y1] = projected[i + 1]
         const beam = beaming(a.theta) * (isHovered ? 1.6 : 1)
         // Wide soft glow, then a hot core
-        ctx.strokeStyle = color + hex((isWaiting ? 0.035 : 0.075) * beam)
-        ctx.lineWidth = (isWaiting ? 7 : 13) * scale
-        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
-        ctx.strokeStyle = color + hex((isWaiting ? 0.22 : 0.42) * beam)
-        ctx.lineWidth = (isWaiting ? 1.2 : 2.6) * scale
-        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+        segment(batch.at(color, (isWaiting ? 0.035 : 0.075) * beam, (isWaiting ? 7 : 13) * scale), x0, y0, x1, y1)
+        segment(cores.at(color, (isWaiting ? 0.22 : 0.42) * beam, (isWaiting ? 1.2 : 2.6) * scale), x0, y0, x1, y1)
       }
     }
+    batch.stroke(ctx)
+    cores.stroke(ctx)
     ctx.globalCompositeOperation = 'source-over'
   }
 
@@ -330,11 +381,10 @@ export function createScene(reducedMotion: boolean): Scene {
       if ((Math.sin(theta) > 0) !== front) continue
       const along = (i - iNow) / (iEnd - iNow)
       const fade = input.consumption ? 0.55 + 0.45 * along : 1 - along
-      ctx.strokeStyle = COLORS.horizonHot + hex(0.32 * beaming(theta) * fade)
-      ctx.lineWidth = 1.6 * scale
       const [x0, y0] = projected[i], [x1, y1] = projected[i + 1]
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+      segment(batch.at(COLORS.horizonHot, 0.32 * beaming(theta) * fade, 1.6 * scale), x0, y0, x1, y1)
     }
+    batch.stroke(ctx)
     ctx.globalCompositeOperation = 'source-over'
   }
 
@@ -379,12 +429,11 @@ export function createScene(reducedMotion: boolean): Scene {
         const a = spiral(i / SAMPLES), b = spiral((i + 1) / SAMPLES)
         if ((Math.sin(a.theta) > 0) !== front) continue
         const [x0, y0] = project(a.r + lift, a.theta), [x1, y1] = project(b.r + lift, b.theta)
-        ctx.strokeStyle = color + hex(0.55 * beaming(a.theta))
-        ctx.lineWidth = 1.5 * scale
-        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+        segment(batch.at(color, 0.55 * beaming(a.theta), 1.5 * scale), x0, y0, x1, y1)
         if (i % 4 === 0) laneHits.push({ sub: k, x: x0, y: y0 })
       }
     })
+    batch.stroke(ctx)
     ctx.globalCompositeOperation = 'source-over'
   }
 
@@ -493,12 +542,10 @@ export function createScene(reducedMotion: boolean): Scene {
       const [x, y] = project(r + m.offset, theta)
       const fade = Math.min(1, m.u * 20) * Math.min(1, (1 - m.u) * 12)
       // The past carries its colors; what's still to come is pale
-      if (m.u > U_NOW) {
-        ctx.fillStyle = COLORS.horizonHot + hex(0.22 * beaming(theta) * fade)
-      } else {
-        const kind = kindAt(h, m.u)
-        ctx.fillStyle = KIND_COLOR[kind] + hex((kind === 'waiting' ? 0.3 : 0.65) * beaming(theta) * fade)
-      }
+      const kind = m.u > U_NOW ? undefined : kindAt(h, m.u)
+      ctx.fillStyle = kind
+        ? KIND_COLOR[kind] + hex((kind === 'waiting' ? 0.3 : 0.65) * beaming(theta) * fade)
+        : COLORS.horizonHot + hex(0.22 * beaming(theta) * fade)
       ctx.beginPath()
       ctx.arc(x, y, m.size * scale * (1 + m.u * 0.8), 0, Math.PI * 2)
       ctx.fill()
@@ -606,15 +653,12 @@ export function createScene(reducedMotion: boolean): Scene {
       // A fibre: the stretch of orbit the gas swept through, longer where it moves faster
       const sweep = 0.06 + 0.3 * (GAS_IN / p.r)
       const fibre = (point: (theta: number) => [number, number], a: number, width: number) => {
-        ctx.strokeStyle = color + hex(a)
-        ctx.lineWidth = width * scale
-        ctx.beginPath()
+        const path = batch.at(color, a, width * scale)
         for (let i = 0; i <= 4; i++) {
           const [x, y] = point(p.theta - sweep * (1 - i / 4))
-          if (i === 0) ctx.moveTo(x, y)
-          else ctx.lineTo(x, y)
+          if (i === 0) path.moveTo(x, y)
+          else path.lineTo(x, y)
         }
-        ctx.stroke()
       }
       if (pass !== 'lensed') {
         fibre(t => projectGas(p.r, t, p.z), Math.min(1, alpha * 1.5), p.width * 1.2)
@@ -625,6 +669,7 @@ export function createScene(reducedMotion: boolean): Scene {
       fibre(t => [cx + Math.cos(t + DISK_ANGLE) * rho * scale, cy + Math.sin(t + DISK_ANGLE) * rho * scale], Math.min(1, alpha * 2.2), p.width * 1.2)
       fibre(t => [cx + Math.cos(-t + DISK_ANGLE) * rho * 0.9 * scale, cy + Math.sin(-t + DISK_ANGLE) * rho * 0.9 * scale], Math.min(1, alpha * 1.3), p.width * 0.9)
     }
+    batch.stroke(ctx)
     ctx.globalCompositeOperation = 'source-over'
   }
 

@@ -4,7 +4,8 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import { Agent, Particle, Edge, Discovery, DepthParticle } from '@/lib/agent-types'
 import type { SimulationState } from '@/hooks/simulation/types'
 import { getStateColor } from '@/lib/colors'
-import { ANIM_SPEED, PERF_OVERLAY, PERF_OVERLAY_ENABLED } from '@/lib/canvas-constants'
+import { ANIM_SPEED, FRAME_RATE, PERF_OVERLAY, PERF_OVERLAY_ENABLED } from '@/lib/canvas-constants'
+import { frameLimiter } from '@/lib/frame-limiter'
 import { BloomRenderer } from './bloom-renderer'
 import { createDepthParticles, updateDepthParticles, drawBackground } from './background-layer'
 import {
@@ -41,12 +42,15 @@ interface CanvasProps {
   onDiscoveryClick?: (discoveryId: string | null) => void
   selectedDiscoveryId?: string | null
   showCostOverlay?: boolean
+  /** Covered by another view: nothing is drawn until it's shown again */
+  paused?: boolean
 }
 
 export function AgentCanvas({
   simulationRef,
   selectedAgentId, hoveredAgentId, showStats, showHexGrid, zoomToFitTrigger, pauseAutoFit,
   onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick, selectedDiscoveryId, showCostOverlay,
+  paused = false,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -96,7 +100,7 @@ export function AgentCanvas({
     showCostOverlay, selectedToolCallId, selectedDiscoveryId,
     simTime: sim.currentTime, pauseAutoFit, dimensions,
     onAgentDrag, onAgentClick, onAgentHover, onContextMenu,
-    onToolCallClick, onDiscoveryClick,
+    onToolCallClick, onDiscoveryClick, paused,
     isDragging: prev?.isDragging ?? false,
   })
   const drawPropsRef = useRef(makeDrawProps())
@@ -167,8 +171,43 @@ export function AgentCanvas({
   // re-subscribing when the callback identity changes.
   const drawRef = useRef<(timestamp: number) => void>(() => {})
 
+  // ─── Frame rate: full while something happens, calm when settled ──────
+  const limiterRef = useRef(frameLimiter())
+  /** When something last happened: an event, a particle or effect, the pointer. Not by itself a
+   *  long-running tool (its spinner reads fine at the calm rate) or the camera: auto-fit follows
+   *  the force layout, which never quite comes to rest, and refits that matter follow events */
+  const activityRef = useRef({ at: 0, events: -1 })
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const touch = () => { activityRef.current.at = performance.now() }
+    const opts = { passive: true } as const
+    el.addEventListener('pointermove', touch, opts)
+    el.addEventListener('pointerdown', touch, opts)
+    el.addEventListener('wheel', touch, opts)
+    return () => {
+      el.removeEventListener('pointermove', touch)
+      el.removeEventListener('pointerdown', touch)
+      el.removeEventListener('wheel', touch)
+    }
+  }, [])
+
+  const isActive = useCallback((timestamp: number): boolean => {
+    const a = activityRef.current
+    const s = simulationRef.current
+    const busy = s.particles.length > 0 || effectsRef.current.length > 0 || drawPropsRef.current.isDragging
+      || s.eventLog.length !== a.events
+    a.events = s.eventLog.length
+    if (busy) a.at = timestamp
+    return timestamp - a.at < FRAME_RATE.activeWindowMs
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only
+  }, [])
+
   const draw = useCallback((timestamp: number) => {
     animationRef.current = requestAnimationFrame((ts) => drawRef.current(ts))
+
+    if (drawPropsRef.current.paused) return
+    if (!limiterRef.current(timestamp, isActive(timestamp) ? FRAME_RATE.active : FRAME_RATE.ambient)) return
 
     const canvas = mainCanvasRef.current
     if (!canvas) return
@@ -197,7 +236,11 @@ export function AgentCanvas({
       } = drawPropsRef.current
       const transform = transformRef.current
 
-      const deltaTime = lastFrameTimeRef.current ? (timestamp - lastFrameTimeRef.current) / 1000 : ANIM_SPEED.defaultDeltaTime
+      // Capped as the simulation's is: after a pause (the time horizon over it), the first frame
+      // back would otherwise take minutes in one step, and everything drifting would jump
+      const deltaTime = lastFrameTimeRef.current
+        ? Math.min((timestamp - lastFrameTimeRef.current) / 1000, ANIM_SPEED.maxDeltaTime)
+        : ANIM_SPEED.defaultDeltaTime
       lastFrameTimeRef.current = timestamp
       timeRef.current += deltaTime
       if (simTime != null) simTimeRef.current = simTime
@@ -330,7 +373,7 @@ export function AgentCanvas({
         console.warn('[AgentCanvas] draw error:', err)
       }
     }
-  }, [detectStateChanges, updateCamera, updateDragLerp, transformRef])
+  }, [detectStateChanges, updateCamera, updateDragLerp, transformRef, isActive])
 
   drawRef.current = draw
 

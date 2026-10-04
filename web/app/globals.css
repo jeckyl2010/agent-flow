@@ -207,13 +207,6 @@
   from { opacity: 0; transform: translateX(28px) scale(0.5); }
   to { opacity: 1; transform: none; }
 }
-@keyframes eco-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-}
-@keyframes eco-orbit {
-  to { transform: rotate(360deg); }
-}
 @keyframes eco-breathe {
   0% { transform: scale(1); }
   30% { transform: scale(1.13); }

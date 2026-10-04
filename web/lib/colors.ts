@@ -166,6 +166,8 @@ export const COLORS = {
   horizonLight: '#ffd9a0',
   horizonHot: '#fff4e0',
   horizonVoid: '#020208',
+  /** The lowest effort: holoBase dimmed, as an opaque color */
+  effortLow: '#4a8db8',
   horizonActiveBg: 'rgba(255, 217, 160, 0.12)',
 
   // Canvas drawing — cost panel bar fills
