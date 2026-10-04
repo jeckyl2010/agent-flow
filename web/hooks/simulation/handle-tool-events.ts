@@ -1,4 +1,5 @@
 import { COLORS } from '@/lib/colors'
+import { HIDDEN_TOOLS } from '@/lib/agent-types'
 import { TOOL_DEDUP_WINDOW_S } from '@/lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { appendConversation, asString, asBoolean, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
@@ -7,9 +8,6 @@ import { appendConversation, asString, asBoolean, LABEL_LEN_PARTICLE, LABEL_LEN_
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
   return asString(inputData?.file_path) || args?.split(' ')[0] || ''
 }
-
-/** Claude Code's own plumbing, not the agent's work: a subagent handing its answer back */
-const HIDDEN_TOOLS = new Set(['SubagentHandback'])
 
 export function handleToolCallStart(
   payload: Record<string, unknown>,

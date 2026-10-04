@@ -81,6 +81,8 @@ export function handlePermissionDetection(
         payload: {
           agent: agentName,
           message: 'Waiting for permission',
+          // Inferred from a tool that went quiet: a slow command looks the same
+          isGuess: true,
         },
       }, sessionId)
     }, PERMISSION_DETECT_MS)

@@ -12,6 +12,9 @@ interface FileAttentionPanelProps {
   onOpenFile?: (filePath: string) => void
 }
 
+/** Also where the eco moons step aside to, while it's open */
+export const FILE_PANEL_WIDTH = 260
+
 export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile }: FileAttentionPanelProps) {
   if (!visible) return null
 
@@ -25,7 +28,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       visible={visible}
       position={{ top: 48, right: 12 }}
       zIndex={Z.sidePanel}
-      width={260}
+      width={FILE_PANEL_WIDTH}
     >
       <div className="glass-card relative">
         <PanelHeader onClose={onClose}>

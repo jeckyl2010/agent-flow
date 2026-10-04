@@ -15,6 +15,7 @@ function asUsage(v: unknown): StepUsage | undefined {
     output_tokens: n('output_tokens'),
     cache_read_input_tokens: n('cache_read_input_tokens'),
     cache_creation_input_tokens: n('cache_creation_input_tokens'),
+    cache_creation_1h_input_tokens: n('cache_creation_1h_input_tokens'),
   }
 }
 

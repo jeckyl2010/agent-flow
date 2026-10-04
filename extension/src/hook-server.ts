@@ -1,6 +1,7 @@
 import * as http from 'http'
 import * as vscode from 'vscode'
 import { AgentEvent, emitSubagentSpawn, type ModelUsage, type UsageTotals } from './protocol'
+import { addUsage, oneHourWrites, totalsPayload } from './transcript-usage'
 import {
   ORCHESTRATOR_NAME, PREVIEW_MAX, RESULT_MAX, MESSAGE_MAX, resolveSubagentChildName,
   SESSION_ID_DISPLAY, FAILED_RESULT_MAX, HOOK_MAX_BODY_SIZE,
@@ -487,7 +488,14 @@ export class HookServer implements vscode.Disposable {
 
     const usage = payload.usage
     if (!usage) return
-    const totals = this.addUsage(state, agent, payload.model || 'unknown', usage)
+    const step: ModelUsage = {
+      input_tokens: usage.input_tokens,
+      output_tokens: usage.output_tokens,
+      cache_read_input_tokens: usage.cache_read_input_tokens,
+      cache_creation_input_tokens: usage.cache_creation_input_tokens,
+      cache_creation_1h_input_tokens: oneHourWrites(usage as unknown as Record<string, unknown>),
+    }
+    const totals = totalsPayload(addUsage(state.usageTotals, agent, payload.model || 'unknown', step))
     // One model request as the API reported it: the UI draws its heartbeat and prices the totals
     this.emit({
       time,
@@ -498,12 +506,7 @@ export class HookServer implements vscode.Disposable {
         ...(payload.effort !== undefined ? { effort: String(payload.effort) } : {}),
         step: payload.step,
         stopReason: payload.stop_reason,
-        usage: {
-          input_tokens: usage.input_tokens,
-          output_tokens: usage.output_tokens,
-          cache_read_input_tokens: usage.cache_read_input_tokens,
-          cache_creation_input_tokens: usage.cache_creation_input_tokens,
-        },
+        usage: step,
         totals,
         // A subagent's totals are whole when this server saw it start; the main agent's never are
         // known to be, so its exact figure comes from the session's cost less its subagents'
@@ -519,26 +522,6 @@ export class HookServer implements vscode.Disposable {
       type: 'context_update',
       payload: { agent, tokens, isMeasured: true },
     }, payload.session_id)
-  }
-
-  private addUsage(state: SessionHookState, agent: string, model: string, usage: ModelUsage) {
-    let totals = state.usageTotals.get(agent)
-    if (!totals) {
-      totals = { steps: 0, byModel: new Map() }
-      state.usageTotals.set(agent, totals)
-    }
-    totals.steps++
-    const sum = totals.byModel.get(model) ?? { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
-    totals.byModel.set(model, {
-      input_tokens: sum.input_tokens + usage.input_tokens,
-      output_tokens: sum.output_tokens + usage.output_tokens,
-      cache_read_input_tokens: sum.cache_read_input_tokens + usage.cache_read_input_tokens,
-      cache_creation_input_tokens: sum.cache_creation_input_tokens + usage.cache_creation_input_tokens,
-    })
-    return {
-      steps: totals.steps,
-      byModel: [...totals.byModel].map(([m, u]) => ({ model: m, ...u })),
-    }
   }
 
   private handleSessionEnd(payload: HookPayload): void {

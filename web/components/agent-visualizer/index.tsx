@@ -11,13 +11,14 @@ import { AgentDetailCard } from "./agent-detail-card"
 import { GlassContextMenu } from "./glass-context-menu"
 import { ToolDetailPopup } from "./tool-detail-popup"
 import { DiscoveryDetailPopup } from "./discovery-detail-popup"
-import { FileAttentionPanel } from "./file-attention-panel"
+import { FileAttentionPanel, FILE_PANEL_WIDTH } from "./file-attention-panel"
 import { TimelinePanel } from "./timeline-panel"
 import { AgentChatPanel } from "./chat-panel"
 import { SessionTranscriptPanel } from "./session-transcript-panel"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers } from "./shared-ui"
-import { TimelineEvent, TIMING } from "@/lib/agent-types"
+import { TimelineEvent, TIMING, CARD } from "@/lib/agent-types"
+import { COST_PANEL } from "@/lib/canvas-constants"
 import { COLORS } from "@/lib/colors"
 
 import { MOCK_DURATION } from "@/lib/mock-scenario"
@@ -26,6 +27,7 @@ import { TopBar } from "./top-bar"
 import { sessionCosts } from "@/lib/session-costs"
 import { sessionImpacts } from "@/lib/eco-impact"
 import { EcoMoons } from "./eco-moons"
+import { TimeHorizonView } from "./time-horizon-view"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 
 export function AgentVisualizer() {
@@ -45,6 +47,7 @@ export function AgentVisualizer() {
     speed,
     maxTimeReached,
     conversations,
+    eventLog,
     play,
     pause,
     restart,
@@ -72,6 +75,8 @@ export function AgentVisualizer() {
   const [showTimeline, setShowTimeline] = useState(false)
   const [showFileAttention, setShowFileAttention] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
+  const [showHorizon, setShowHorizon] = useState(false)
+  const closeHorizon = useCallback(() => setShowHorizon(false), [])
 
   // Mutually exclusive panel toggling — opening one closes the others
   const toggleExclusivePanel = useCallback((panel: 'files' | 'transcript' | 'cost') => {
@@ -192,6 +197,7 @@ export function AgentVisualizer() {
     toggleFilePanel: () => toggleExclusivePanel('files'),
     toggleTranscript: () => toggleExclusivePanel('transcript'),
     toggleTimeline: () => { setShowTimeline(prev => !prev) },
+    toggleHorizon: () => { setShowHorizon(prev => !prev) },
     toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
     toggleStats: () => { setShowStats(prev => !prev) },
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
@@ -298,8 +304,16 @@ export function AgentVisualizer() {
         showCostOverlay={showCostOverlay}
       />
 
-      {/* Environmental footprint (right edge), out of the way of the right-hand panels */}
-      <EcoMoons impacts={ecoImpacts} hidden={showFileAttention || showTranscript || showCostOverlay} />
+      {/* Environmental footprint: down the top right, beside any open right-hand panel; flying
+          into a row over the time horizon when it opens */}
+      <EcoMoons
+        impacts={ecoImpacts}
+        layout={showHorizon ? 'row' : 'column'}
+        rightInset={showFileAttention ? FILE_PANEL_WIDTH + 12 : showTranscript ? CARD.transcript.width + 12 : showCostOverlay ? COST_PANEL.width + COST_PANEL.xMargin : 0}
+      />
+
+      {/* Time horizon: where the session's time went, a second view over the canvas */}
+      {showHorizon && <TimeHorizonView events={eventLog} agents={agents} currentTime={currentTime} onClose={closeHorizon} />}
 
       {/* Message feed panel (top-left) */}
       <MessageFeedPanel
@@ -428,9 +442,11 @@ export function AgentVisualizer() {
         showTranscript={showTranscript}
         showCostOverlay={showCostOverlay}
         showTimeline={showTimeline}
+        showHorizon={showHorizon}
         isMuted={isMuted}
         onTogglePanel={toggleExclusivePanel}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
+        onToggleHorizon={() => setShowHorizon(prev => !prev)}
         onToggleMute={handleToggleMute}
       />
     </div>

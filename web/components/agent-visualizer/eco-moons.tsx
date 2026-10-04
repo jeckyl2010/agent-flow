@@ -101,7 +101,12 @@ interface Delta { id: number; text: string }
 
 let nextDeltaId = 0
 
-function Moon({ spec, range, index, footnote }: { spec: MoonSpec; range: Range; index: number; footnote: string }) {
+/** Down the top right of the main view, or across the top over the time horizon's black hole */
+export type MoonLayout = 'column' | 'row'
+
+function Moon({ spec, range, index, footnote, layout }: {
+  spec: MoonSpec; range: Range; index: number; footnote: string; layout: MoonLayout
+}) {
   const target = midpoint(range)
   const shown = useTweened(target)
   const [pulse, setPulse] = useState(0)
@@ -187,10 +192,15 @@ function Moon({ spec, range, index, footnote }: { spec: MoonSpec; range: Range; 
         </div>
       </div>
 
-      {/* What each update added, rising away */}
+      {/* What each update added, drifting away from the moon: beside it in the column, under it in the row */}
       {deltas.map(d => (
         <div key={d.id} className="eco-delta-chip absolute font-mono text-[9px] whitespace-nowrap pointer-events-none"
-          style={{ right: SIZE + 10, top: SIZE / 2 - 6, color: c, textShadow: `0 0 6px ${c}`, animation: 'eco-delta 1.6s ease-out both' }}
+          style={{
+            ...(layout === 'column'
+              ? { right: SIZE + 10, top: SIZE / 2 - 6, animation: 'eco-delta-rise 1.6s ease-out both' }
+              : { left: -50, width: SIZE + 100, top: SIZE + 12, textAlign: 'center', animation: 'eco-delta-fall 1.6s ease-out both' }),
+            color: c, textShadow: `0 0 6px ${c}`,
+          }}
           onAnimationEnd={() => setDeltas(list => list.filter(x => x.id !== d.id))}>
           {d.text}
         </div>
@@ -198,7 +208,10 @@ function Moon({ spec, range, index, footnote }: { spec: MoonSpec; range: Range; 
 
       {hovered && (
         <div className="glass-card absolute font-mono pointer-events-none"
-          style={{ right: SIZE + 14, top: -6, width: 230, padding: 10, zIndex: 1, borderColor: c + '40' }}>
+          style={{
+            ...(layout === 'column' ? { right: SIZE + 14, top: -6 } : { left: SIZE / 2 - 115, top: SIZE + 16 }),
+            width: 230, padding: 10, zIndex: 1, borderColor: c + '40',
+          }}>
           <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider" style={{ color: c }}>
             {spec.icon}{spec.label.toUpperCase()}
           </div>
@@ -219,29 +232,58 @@ function Moon({ spec, range, index, footnote }: { spec: MoonSpec; range: Range; 
   )
 }
 
+const COLUMN_GAP = 16
+const ROW_GAP = 26
+/** The time horizon's side panel: the row centres over the black hole beside it */
+const HORIZON_PANEL = 330
+/** The column's place: under the top bar, at the right edge */
+const COLUMN_TOP = 64
+const COLUMN_RIGHT = 22
+
+function useViewport(): [number, number] | undefined {
+  const [size, setSize] = useState<[number, number]>()
+  useEffect(() => {
+    const read = () => setSize([window.innerWidth, window.innerHeight])
+    read()
+    window.addEventListener('resize', read)
+    return () => window.removeEventListener('resize', read)
+  }, [])
+  return size
+}
+
 /**
- * The session's environmental footprint, after EcoLogits: five moons down the right edge that
- * count up as requests come in, flash what each added, and burst on crossing a 1–2–5 milestone.
- * They glide aside while a right-hand panel is open.
+ * The session's environmental footprint, after EcoLogits: five moons that count up as requests
+ * come in, flash what each added, and burst on crossing a 1–2–5 milestone. They stand in a column
+ * at the top right of the main view, stepping aside for a right-hand panel (`rightInset`), and fly
+ * into a row over the black hole when the time horizon opens, and back when it closes.
  */
-export const EcoMoons = memo(function EcoMoons({ impacts, hidden }: { impacts: SessionImpacts; hidden: boolean }) {
-  if (impacts.outputTokens === 0) return null
+export const EcoMoons = memo(function EcoMoons({ impacts, layout, rightInset = 0 }: {
+  impacts: SessionImpacts; layout: MoonLayout; rightInset?: number
+}) {
+  const viewport = useViewport()
+  if (impacts.outputTokens === 0 || !viewport) return null
 
   const notes = ['EcoLogits estimate from output tokens only: input and cache reads are not counted. Model sizes are estimated, hence the range.']
   if (impacts.uncountedAgents > 0) notes.push(`${impacts.uncountedAgents} agent${impacts.uncountedAgents > 1 ? 's' : ''} on a model EcoLogits doesn’t cover left out.`)
   if (impacts.isPartial) notes.push('Some requests weren’t measured, so this is a floor.')
   const footnote = notes.join(' ')
 
+  const width = viewport[0]
+  const n = MOONS.length
+  const rowLeft = (width - HORIZON_PANEL) / 2 - (n * SIZE + (n - 1) * ROW_GAP) / 2
+
   return (
-    <div className="absolute flex flex-col"
-      style={{
-        top: 64, right: 22, gap: 20, zIndex: Z.info, pointerEvents: hidden ? 'none' : 'auto',
-        opacity: hidden ? 0 : 1, transform: hidden ? 'translateX(90px)' : 'none',
-        transition: 'opacity 0.35s ease, transform 0.5s cubic-bezier(.3,1.3,.5,1)',
-      }}>
-      {MOONS.map((spec, i) => (
-        <Moon key={spec.kind} spec={spec} range={impacts.total[spec.kind]} index={i} footnote={footnote} />
-      ))}
+    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: layout === 'row' ? Z.horizon + 1 : Z.info }}>
+      {MOONS.map((spec, i) => {
+        const x = layout === 'column' ? width - COLUMN_RIGHT - SIZE - rightInset : rowLeft + i * (SIZE + ROW_GAP)
+        const y = layout === 'column' ? COLUMN_TOP + i * (SIZE + COLUMN_GAP) : 56
+        return (
+          <div key={spec.kind} className="absolute pointer-events-auto"
+            style={{ left: 0, top: 0, transform: `translate(${x}px, ${y}px)`, transition: `transform 0.9s cubic-bezier(.65,0,.35,1) ${i * 0.07}s` }}>
+            <Moon spec={spec} range={impacts.total[spec.kind]} index={i} footnote={footnote} layout={layout} />
+          </div>
+        )
+      })}
     </div>
   )
 })

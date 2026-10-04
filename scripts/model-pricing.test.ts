@@ -39,6 +39,12 @@ test('a step costs input, output, cache reads and 5-minute cache writes at their
   assert.equal(stepCost(usage(0, 0), 'claude-opus-5-5'), 0)
 })
 
+test('1-hour cache writes cost twice the input price', () => {
+  // Opus 5.5: 1M cache write, 600k of it with the 1-hour TTL: 400k × $5 + 600k × $8
+  const step = { ...usage(0, 0, 0, 1e6), cache_creation_1h_input_tokens: 6e5 }
+  assert.equal(stepCost(step, 'claude-opus-5-5'), 6.8)
+})
+
 test('cache hit ratio is the share of input the cache served', () => {
   assert.equal(cacheHitRatio(usage(10, 500, 90, 0)), 0.9)
   assert.equal(cacheHitRatio(usage(50, 0, 0, 50)), 0)

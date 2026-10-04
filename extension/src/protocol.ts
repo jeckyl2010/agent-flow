@@ -172,6 +172,9 @@ export interface ModelUsage {
   output_tokens: number
   cache_read_input_tokens: number
   cache_creation_input_tokens: number
+  /** The part of cache_creation_input_tokens written with the 1-hour TTL, which costs more than
+   *  the default 5 minutes; absent when the source doesn't break writes down by TTL */
+  cache_creation_1h_input_tokens?: number
 }
 
 /** An agent's model requests so far: how many, and their usage summed per model */
