@@ -102,7 +102,7 @@ interface Delta { id: number; text: string }
 let nextDeltaId = 0
 
 /** Down the top right of the main view, or across the top over the time horizon's black hole */
-export type MoonLayout = 'column' | 'row'
+type MoonLayout = 'column' | 'row'
 
 function Moon({ spec, range, index, footnote, layout }: {
   spec: MoonSpec; range: Range; index: number; footnote: string; layout: MoonLayout
@@ -274,7 +274,7 @@ export const EcoMoons = memo(function EcoMoons({ impacts, layout, rightInset = 0
         const x = layout === 'column' ? width - COLUMN_RIGHT - SIZE - rightInset : rowLeft + i * (SIZE + ROW_GAP)
         const y = layout === 'column' ? COLUMN_TOP + i * (SIZE + COLUMN_GAP) : 56
         return (
-          <div key={spec.kind} className="absolute pointer-events-auto"
+          <div key={spec.kind} className="eco-flight absolute pointer-events-auto"
             style={{ left: 0, top: 0, transform: `translate(${x}px, ${y}px)`, transition: `transform 0.9s cubic-bezier(.65,0,.35,1) ${i * 0.07}s` }}>
             <Moon spec={spec} range={impacts.total[spec.kind]} index={i} footnote={footnote} layout={layout} />
           </div>

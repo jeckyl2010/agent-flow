@@ -1,12 +1,13 @@
 /**
  * The time horizon's scene, drawn on a canvas every frame: a black hole whose accretion disk is
- * the session's timeline, spiralling from T+0 on its rim to now at the event horizon.
+ * the session's timeline. Now (T+0) sits out on the disk; the session so far trails back to the
+ * rim, and the time to come spirals in to the horizon, where the context window fills.
  *
  * Matter falls along the disk toward the horizon, colored by the moment it passes; the side
  * turning toward the viewer burns brighter; stars behind the hole bend around it.
  */
 import { COLORS } from '@/lib/colors'
-import { formatDuration, type Consumption, type TimeHorizon, type TimeKind } from '@/lib/time-horizon'
+import { formatDuration, runKey, type Consumption, type TimeHorizon, type TimeKind } from '@/lib/time-horizon'
 
 export const KIND_COLOR: Record<TimeKind, string> = {
   thinking: COLORS.timeThinking,
@@ -24,7 +25,7 @@ const R_IN = 150
 const TURNS = 2.6
 const TILT = 0.3
 const DISK_ANGLE = (-7 * Math.PI) / 180
-export const HOLE_R = 44
+const HOLE_R = 44
 /** The hot inner flow, between the horizon and the timeline */
 const GAS_IN = HOLE_R * 1.15
 const GAS_OUT = 250
@@ -69,12 +70,12 @@ export interface Scene {
   holeCenter(): [number, number]
   /** The ring flares, as when it swallows something */
   pulse(): void
-  /** The prompt hexagon under a canvas point: its turn's index, and where it is */
-  hexAt(x: number, y: number): { turn: number; x: number; y: number } | undefined
-  /** Lights a prompt hexagon, or none */
-  hoverHex(turn: number | undefined): void
-  /** The subagent under a canvas point, a ship in flight or its lane in the past: its index, and where */
-  shipAt(x: number, y: number): { sub: number; x: number; y: number } | undefined
+  /** The prompt hexagon under a canvas point: its turn, by when it started, and where it is */
+  hexAt(x: number, y: number): { start: number; x: number; y: number } | undefined
+  /** Lights a prompt hexagon, by its turn's start, or none */
+  hoverHex(start: number | undefined): void
+  /** The subagent under a canvas point, a ship in flight or its lane in the past: its run's key, and where */
+  shipAt(x: number, y: number): { key: string; x: number; y: number } | undefined
 }
 
 /** Subagents by model: small cool scouts to warm heavy ones */
@@ -94,28 +95,34 @@ const hex = (a: number) => Math.round(Math.max(0, Math.min(1, a)) * 255).toStrin
  * dozen. Opacity is rounded to 1/24 steps and widths to a quarter pixel: no difference to the eye.
  */
 class Batch {
-  private paths = new Map<string, { path: Path2D; color: string; alpha: number; width: number }>()
+  /** By color, then by rounded opacity and width packed into one number: looked up without
+   *  building a string for each of the thousands of strokes a frame */
+  private byColor = new Map<string, Map<number, Path2D>>()
 
   /** The path to add to for this style */
   at(color: string, alpha: number, width = 0): Path2D {
-    const a = Math.round(Math.max(0, Math.min(1, alpha)) * 24) / 24
-    const w = Math.round(width * 4) / 4
-    const key = `${color}|${a}|${w}`
-    let entry = this.paths.get(key)
-    if (!entry) { entry = { path: new Path2D(), color, alpha: a, width: w }; this.paths.set(key, entry) }
-    return entry.path
+    const a = Math.round(Math.max(0, Math.min(1, alpha)) * 24)
+    const w = Math.round(width * 4)
+    let styles = this.byColor.get(color)
+    if (!styles) { styles = new Map(); this.byColor.set(color, styles) }
+    const key = w * 32 + a
+    let path = styles.get(key)
+    if (!path) { path = new Path2D(); styles.set(key, path) }
+    return path
   }
 
   stroke(ctx: CanvasRenderingContext2D) {
-    for (const { path, color, alpha, width } of this.paths.values()) {
-      if (alpha <= 0 || width <= 0) continue
-      ctx.strokeStyle = color + hex(alpha)
-      ctx.lineWidth = width
-      ctx.stroke(path)
+    for (const [color, styles] of this.byColor) {
+      for (const [key, path] of styles) {
+        const a = key % 32, w = Math.floor(key / 32)
+        if (a === 0 || w === 0) continue
+        ctx.strokeStyle = color + hex(a / 24)
+        ctx.lineWidth = w / 4
+        ctx.stroke(path)
+      }
+      styles.clear()
     }
-    this.paths.clear()
   }
-
 }
 
 /** A segment into a batched path */
@@ -171,7 +178,9 @@ export function createScene(reducedMotion: boolean): Scene {
   let lastNow = 0
   let hovered: Hover | undefined
   // Screen positions of the disk's samples, from the latest frame, for hit testing
-  let projected: Array<[number, number]> = []
+  /** The disk's samples on screen this frame: allocated once and rewritten in place, not 1,400
+   *  new pairs a frame for the garbage collector */
+  const projected: Array<[number, number]> = Array.from({ length: SAMPLES + 1 }, () => [0, 0])
 
   // The camera: scale, center, and a slight parallax tilt toward the pointer
   let scale = 1, cx = 0, cy = 0, tilt = TILT
@@ -189,12 +198,13 @@ export function createScene(reducedMotion: boolean): Scene {
   /** The past moment at a point of the disk outside now */
   const timeAtU = (h: TimeHorizon, u: number) => h.start + (u / U_NOW) * h.elapsed
 
-  /** Prompt hexagons as last drawn, for hit testing, and the one lit by the pointer */
-  let hexes: Array<{ turn: number; x: number; y: number }> = []
+  /** Prompt hexagons as last drawn, for hit testing, and the one lit by the pointer, by turn start:
+   *  list positions shift when the event log drops its oldest events */
+  let hexes: Array<{ start: number; x: number; y: number }> = []
   let litHex: number | undefined
-  /** When each turn's hexagon first appeared while the view was open: it pops in */
+  /** When each turn's hexagon first appeared while the view was open, by turn start: it pops in */
   const poppedAt = new Map<number, number>()
-  let seenTurns: number | undefined
+  let seenStarts: Set<number> | undefined
 
   function kindAt(h: TimeHorizon, u: number): TimeKind {
     const t = timeAtU(h, u)
@@ -212,7 +222,9 @@ export function createScene(reducedMotion: boolean): Scene {
     const holeR = HOLE_R * scale
     for (const s of stars) {
       // Drift, with parallax toward the pointer
-      let x = ((s.x + now * 0.000004 * (0.3 + s.depth)) % 1) * w + pointer[0] * 12 * s.depth
+      // Drifting, and twinkling below, unless motion is reduced
+      const drift = reducedMotion ? 0 : now * 0.000004 * (0.3 + s.depth)
+      let x = ((s.x + drift) % 1) * w + pointer[0] * 12 * s.depth
       let y = s.y * hgt + pointer[1] * 8 * s.depth
       const dx = x - cx, dy = y - cy
       const d = Math.hypot(dx, dy)
@@ -232,7 +244,7 @@ export function createScene(reducedMotion: boolean): Scene {
       const bent = d + (holeR * holeR * 1.6) / d
       x = cx + (dx / d) * bent
       y = cy + (dy / d) * bent
-      const twinkle = 0.55 + 0.45 * Math.sin(now * 0.0015 * (0.5 + s.depth) + s.phase)
+      const twinkle = reducedMotion ? 0.8 : 0.55 + 0.45 * Math.sin(now * 0.0015 * (0.5 + s.depth) + s.phase)
       const near = Math.max(0, 1 - (d - holeR) / (holeR * 3))
       // Smeared into the ring and gone as it crosses
       const vanishing = Math.min(1, (d - holeR * 1.05) / (holeR * 0.5))
@@ -300,7 +312,10 @@ export function createScene(reducedMotion: boolean): Scene {
   let gridCache: { canvas: HTMLCanvasElement; key: string } | undefined
   function drawHexGrid(ctx: CanvasRenderingContext2D, w: number, hgt: number, now: number) {
     const dpr = ctx.getTransform().a || 1
-    const key = `${w}|${hgt}|${dpr}|${scale.toFixed(3)}|${Math.round(cx)}|${Math.round(cy)}`
+    // Drawn around the view's center, without the pointer's parallax: the parallax only moves
+    // the finished image, so the cache holds while the pointer moves
+    const gx = w / 2, gy = hgt / 2
+    const key = `${w}|${hgt}|${dpr}|${scale.toFixed(3)}`
     if (gridCache?.key !== key) {
       const canvas = gridCache?.canvas ?? document.createElement('canvas')
       canvas.width = Math.round(w * dpr)
@@ -314,7 +329,7 @@ export function createScene(reducedMotion: boolean): Scene {
         const col = Math.round(x / (size * 1.5))
         for (let y = -hh; y < hgt + hh; y += hh) {
           const yy = y + (col % 2 ? hh / 2 : 0)
-          const d = Math.hypot(x - cx, yy - cy) / (Math.max(w, hgt) * 0.55)
+          const d = Math.hypot(x - gx, yy - gy) / (Math.max(w, hgt) * 0.55)
           // Strongest in a band around the disk, fading at the edges and into the hole
           const a = 0.07 * Math.max(0, 1 - Math.abs(d - 0.55) * 2.2)
           if (a < 0.008) continue
@@ -333,7 +348,7 @@ export function createScene(reducedMotion: boolean): Scene {
     }
     ctx.save()
     ctx.globalAlpha = reducedMotion ? 0.85 : 0.75 + 0.25 * Math.sin(now * 0.0008)
-    ctx.drawImage(gridCache.canvas, 0, 0, w, hgt)
+    ctx.drawImage(gridCache.canvas, cx - gx, cy - gy, w, hgt)
     ctx.restore()
   }
 
@@ -395,11 +410,18 @@ export function createScene(reducedMotion: boolean): Scene {
   interface Spark { x: number; y: number; vx: number; vy: number; life: number; color: string }
   const sparks: Spark[] = []
   /** Ships and lane points as last drawn, for hit testing */
-  let shipHits: Array<{ sub: number; x: number; y: number }> = []
-  let laneHits: Array<{ sub: number; x: number; y: number }> = []
+  let shipHits: Array<{ key: string; x: number; y: number }> = []
+  let laneHits: Array<{ key: string; x: number; y: number }> = []
   let shipsSeen = false
   const LAUNCH_MS = 1700
 
+  /** A ship's place in the sky, from its run: list positions shift when the event log drops its
+   *  oldest events, and a ship in flight would jump to another orbit */
+  const slot = (key: string) => {
+    let hsh = 0
+    for (let i = 0; i < key.length; i++) hsh = (hsh * 31 + key.charCodeAt(i)) >>> 0
+    return hsh % 12
+  }
   const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
   /** Each ship its own slingshot orbit round the hole: radius, tilt and phase by its place in line */
   function orbitPoint(k: number, now: number): [number, number] {
@@ -420,17 +442,17 @@ export function createScene(reducedMotion: boolean): Scene {
     if (front) laneHits = []
     ctx.globalCompositeOperation = 'lighter'
     ctx.lineCap = 'butt'
-    h.subagents.forEach((run, k) => {
+    h.subagents.forEach(run => {
       const u0 = pastU(h, Math.max(run.start, h.start)), u1 = pastU(h, run.end ?? h.start + h.elapsed)
       const i0 = Math.floor(u0 * SAMPLES), i1 = Math.min(Math.round(U_NOW * SAMPLES), Math.ceil(u1 * SAMPLES))
       const color = shipColor(run.model)
-      const lift = 12 + (k % 3) * 6
+      const lift = 12 + (slot(runKey(run)) % 3) * 6
       for (let i = i0; i < i1; i++) {
         const a = spiral(i / SAMPLES), b = spiral((i + 1) / SAMPLES)
         if ((Math.sin(a.theta) > 0) !== front) continue
         const [x0, y0] = project(a.r + lift, a.theta), [x1, y1] = project(b.r + lift, b.theta)
         segment(batch.at(color, 0.55 * beaming(a.theta), 1.5 * scale), x0, y0, x1, y1)
-        if (i % 4 === 0) laneHits.push({ sub: k, x: x0, y: y0 })
+        if (i % 4 === 0) laneHits.push({ key: runKey(run), x: x0, y: y0 })
       }
     })
     batch.stroke(ctx)
@@ -444,17 +466,17 @@ export function createScene(reducedMotion: boolean): Scene {
    */
   function drawShips(ctx: CanvasRenderingContext2D, h: TimeHorizon, now: number, dt: number) {
     shipHits = []
-    h.subagents.forEach((run, k) => {
-      let f = flights.get(run.name)
+    h.subagents.forEach(run => {
+      let f = flights.get(runKey(run))
       if (!f) {
         // Out already when the view opened: in orbit. Back already: only its lane
         f = { launchedAt: shipsSeen ? now : now - LAUNCH_MS, landed: !shipsSeen && run.end !== undefined, trail: [], requests: run.requests }
-        flights.set(run.name, f)
+        flights.set(runKey(run), f)
       }
       if (f.landed) return
       if (run.end !== undefined && f.returnedAt === undefined) f.returnedAt = now
 
-      const orbit = orbitPoint(k, now)
+      const orbit = orbitPoint(slot(runKey(run)), now)
       let pos = orbit
       const launch = Math.min(1, (now - (f.launchedAt ?? now)) / LAUNCH_MS)
       if (launch < 1) {
@@ -513,7 +535,7 @@ export function createScene(reducedMotion: boolean): Scene {
       ctx.textAlign = 'left'
       ctx.fillStyle = color + 'cc'
       ctx.fillText(run.name.length > 18 ? `${run.name.slice(0, 17)}…` : run.name, pos[0] + size + 6, pos[1] - size - 2)
-      shipHits.push({ sub: k, x: pos[0], y: pos[1] })
+      shipHits.push({ key: runKey(run), x: pos[0], y: pos[1] })
     })
     shipsSeen = true
 
@@ -737,20 +759,26 @@ export function createScene(reducedMotion: boolean): Scene {
    */
   function drawMarkers(ctx: CanvasRenderingContext2D, input: SceneInput, now: number) {
     const h = input.horizon
-    if (seenTurns === undefined) seenTurns = h.turnLog.length
-    for (let i = seenTurns; i < h.turnLog.length; i++) poppedAt.set(i, now)
-    seenTurns = h.turnLog.length
+    // Turns there when the view opened are just there; ones that arrive after pop in
+    const opening = seenStarts === undefined
+    seenStarts ??= new Set()
+    for (const turn of h.turnLog) {
+      if (seenStarts.has(turn.start)) continue
+      seenStarts.add(turn.start)
+      if (!opening) poppedAt.set(turn.start, now)
+    }
 
     hexes = []
-    h.turnLog.forEach((turn, i) => {
+    h.turnLog.forEach(turn => {
       const { theta, r } = spiral(pastU(h, turn.start))
       const [x, y] = project(r, theta)
-      hexes.push({ turn: i, x, y })
+      hexes.push({ start: turn.start, x, y })
       const intensity = Math.min(1, Math.log10(1 + turn.work) / Math.log10(1 + 1800))
       const spin = reducedMotion ? 0 : now * (0.0002 + 0.004 * intensity)
-      const pop = poppedAt.has(i) ? Math.max(0, 1 - (now - poppedAt.get(i)!) / 900) : 0
+      const poppedFrom = poppedAt.get(turn.start)
+      const pop = poppedFrom !== undefined ? Math.max(0, 1 - (now - poppedFrom) / 900) : 0
       const running = turn.end === undefined
-      const lit = litHex === i
+      const lit = litHex === turn.start
       const size = (6 + intensity * 3 + pop * 8 + (lit ? 2 : 0)) * scale
       if (pop > 0) {
         hexPath(ctx, x, y, size + (1 - pop) * 40 * scale, spin)
@@ -912,16 +940,16 @@ export function createScene(reducedMotion: boolean): Scene {
       emit(24)
     },
     hexAt(x, y) {
-      let best: { turn: number; x: number; y: number } | undefined, bestD = (12 * scale) ** 2
+      let best: { start: number; x: number; y: number } | undefined, bestD = (12 * scale) ** 2
       for (const hx of hexes) {
         const d = (hx.x - x) ** 2 + (hx.y - y) ** 2
         if (d < bestD) { bestD = d; best = hx }
       }
       return best
     },
-    hoverHex(turn) { litHex = turn },
+    hoverHex(start) { litHex = start },
     shipAt(x, y) {
-      let best: { sub: number; x: number; y: number } | undefined, bestD = (14 * scale) ** 2
+      let best: { key: string; x: number; y: number } | undefined, bestD = (14 * scale) ** 2
       for (const hit of [...shipHits, ...laneHits]) {
         const d = (hit.x - x) ** 2 + (hit.y - y) ** 2
         if (d < bestD) { bestD = d; best = hit }
@@ -969,10 +997,12 @@ export function createScene(reducedMotion: boolean): Scene {
         return
       }
 
-      projected = Array.from({ length: SAMPLES + 1 }, (_, i) => {
+      for (let i = 0; i <= SAMPLES; i++) {
         const { theta, r } = spiral(i / SAMPLES)
-        return project(r, theta)
-      })
+        const x = r * Math.cos(theta), y = r * Math.sin(theta) * tilt
+        projected[i][0] = cx + (x * cosA - y * sinA) * scale
+        projected[i][1] = cy + (x * sinA + y * cosA) * scale
+      }
       drawDisk(ctx, h, false)
       drawLanes(ctx, h, false)
       drawFuture(ctx, input, now, false)

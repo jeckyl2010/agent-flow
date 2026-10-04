@@ -539,8 +539,6 @@ export class TranscriptParser {
     }
   }
 
-  /** Emit message events for pre-existing transcript entries (catch-up on session detection).
-   *  Only emits the last user message (the current turn), not the full history. */
   /** An agent's usage from before it was watched, as one step carrying its totals: the request
    *  shown is the latest of `entries`. Nothing for a session the bridge mod reports. */
   emitUsageCatchUp(agentName: string, entries: readonly unknown[], session: WatchedSession, sessionId: string): void {
@@ -558,6 +556,8 @@ export class TranscriptParser {
     }
   }
 
+  /** Emit message events for pre-existing transcript entries (catch-up on session detection).
+   *  Only emits the last user message (the current turn), not the full history. */
   emitCatchUpEntries(entries: TranscriptEntry[], session: WatchedSession, sessionId: string): void {
     // Find the last user entry — that's the current turn
     let lastUserIndex = -1

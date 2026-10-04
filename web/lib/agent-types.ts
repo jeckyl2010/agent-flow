@@ -74,10 +74,19 @@ export interface AgentSpend {
   cacheRead: number
   cacheWrite: number
   steps: number
+  /** Output and requests per model: an agent can switch models, and each model's requests cost
+   *  their own energy. Absent where usage arrived without the breakdown */
+  byModel?: ModelOutput[]
   /** The share of the latest request's input the prompt cache served, 0 to 1 */
   lastCacheHit?: number
   /** Every request the agent made is counted: it was watched from its start */
   isComplete: boolean
+}
+
+export interface ModelOutput {
+  model: string
+  output: number
+  requests: number
 }
 
 /** One model request, as the heartbeat shows it */

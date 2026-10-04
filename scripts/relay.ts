@@ -17,9 +17,10 @@ import { handlePermissionDetection } from '../extension/src/permission-detection
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
-  SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
+  SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
 } from '../extension/src/constants'
+import { createWatchedSession } from '../extension/src/watched-session'
 import { setLogLevel } from '../extension/src/logger'
 import type { TelemetryClient } from './telemetry'
 
@@ -192,27 +193,7 @@ function resetInactivityTimer(sessionId: string) {
 
 function watchSession(sessionId: string, filePath: string) {
   const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
-  const session: WatchedSession = {
-    sessionId, filePath,
-    fileWatcher: null, pollTimer: null, fileSize: 0,
-    sessionStartTime: Date.now(),
-    pendingToolCalls: new Map(),
-    seenToolUseIds: new Set(),
-    seenMessageHashes: new Set(),
-    sessionDetected: false, sessionCompleted: false,
-    lastActivityTime: Date.now(),
-    inactivityTimer: null,
-    subagentWatchers: new Map(),
-    spawnedSubagents: new Set(),
-    inlineProgressAgents: new Set(),
-    subagentsDirWatcher: null, subagentsDir: null,
-    label: defaultLabel, labelSet: false,
-    model: null,
-    modelDetectedAgents: new Map(),
-    permissionTimer: null, permissionEmitted: false,
-    usageSeenIds: new Set(), usageTotals: new Map(),
-    contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
-  }
+  const session = createWatchedSession(sessionId, filePath, { label: defaultLabel, lastActivityTime: Date.now() })
   sessions.set(sessionId, session)
 
   const stat = fs.statSync(filePath)

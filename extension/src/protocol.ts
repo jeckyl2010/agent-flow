@@ -180,7 +180,9 @@ export interface ModelUsage {
 /** An agent's model requests so far: how many, and their usage summed per model */
 export interface UsageTotals {
   steps: number
-  byModel: Map<string, ModelUsage>
+  /** Usage summed per model, with how many requests each made: the environmental impacts count
+   *  a start-up cost per request */
+  byModel: Map<string, ModelUsage & { requests: number }>
 }
 
 export interface WatchedSession {

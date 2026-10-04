@@ -7,7 +7,7 @@ import { frameLimiter } from '@/lib/frame-limiter'
 import { COLORS } from '@/lib/colors'
 import { formatCount } from '@/lib/utils'
 import {
-  timeHorizon, formatDuration, longest, predictConsumption, parallelism, TIME_KINDS,
+  timeHorizon, formatDuration, longest, predictConsumption, parallelism, runKey, TIME_KINDS,
   type Consumption, type TimeHorizon, type TimeKind,
 } from '@/lib/time-horizon'
 import { sessionCosts } from '@/lib/session-costs'
@@ -22,6 +22,9 @@ const KIND_STYLE: Record<TimeKind, { label: string; about: string }> = {
   waiting: { label: 'Waiting for you', about: 'Between turns: your move' },
 }
 
+/** A card's place on the canvas: the point it opens beside, and the canvas's size when it opened */
+interface Placed { at: [number, number]; bounds: [number, number] }
+
 /** The black hole, drawn every frame; the data arrives through a ref so the loop never restarts */
 function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<string, Agent> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -31,13 +34,16 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
   const [hover, setHover] = useState<Hover | undefined>()
   const [overHole, setOverHole] = useState(false)
   /** Where the insights card opens, beside the hole; closed when undefined */
-  const [insightsAt, setInsightsAt] = useState<[number, number] | undefined>()
+  const [insightsAt, setInsightsAt] = useState<Placed | undefined>()
   const [overHex, setOverHex] = useState(false)
-  /** The prompt whose card is open: its turn, and where its hexagon is */
-  const [promptCard, setPromptCard] = useState<{ turn: number; x: number; y: number } | undefined>()
+  /** The prompt whose card is open, by its turn's start (list positions shift when the event log
+   *  drops its oldest events), and where its hexagon is */
+  const [promptCard, setPromptCard] = useState<(Placed & { start: number }) | undefined>()
   const [overShip, setOverShip] = useState(false)
-  /** The subagent whose card is open, and where it was clicked */
-  const [shipCard, setShipCard] = useState<{ sub: number; x: number; y: number } | undefined>()
+  /** The subagent whose card is open, by its run's key, and where it was clicked */
+  const [shipCard, setShipCard] = useState<(Placed & { key: string }) | undefined>()
+  /** The canvas's size, read when a card opens: cards keep inside it */
+  const boundsNow = (): [number, number] => [canvasRef.current?.clientWidth ?? 0, canvasRef.current?.clientHeight ?? 0]
 
   // Escape closes a card before it closes the view
   const cardOpen = !!insightsAt || !!promptCard || !!shipCard
@@ -87,7 +93,7 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
     const ship = sceneRef.current?.shipAt(x, y)
     setOverShip(!!ship)
     const hex = ship ? undefined : sceneRef.current?.hexAt(x, y)
-    sceneRef.current?.hoverHex(hex?.turn)
+    sceneRef.current?.hoverHex(hex?.start)
     setOverHex(!!hex)
     const hit = ship || hex ? undefined : sceneRef.current?.hit(x, y, inputRef.current)
     setHover(prev => (prev?.start === hit?.start ? prev : hit))
@@ -101,14 +107,14 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
     const ship = scene?.shipAt(x, y)
     if (ship) {
       setInsightsAt(undefined); setPromptCard(undefined)
-      setShipCard(prev => (prev?.sub === ship.sub ? undefined : ship))
+      setShipCard(prev => (prev?.key === ship.key ? undefined : { ...ship, at: [ship.x, ship.y], bounds: boundsNow() }))
       return
     }
     setShipCard(undefined)
     const hex = scene?.hexAt(x, y)
     if (hex) {
       setInsightsAt(undefined)
-      setPromptCard(prev => (prev?.turn === hex.turn ? undefined : hex))
+      setPromptCard(prev => (prev?.start === hex.start ? undefined : { start: hex.start, at: [hex.x, hex.y], bounds: boundsNow() }))
       return
     }
     setPromptCard(undefined)
@@ -117,11 +123,12 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
       return
     }
     scene.pulse()
-    setInsightsAt(prev => (prev ? undefined : scene.holeCenter()))
+    setInsightsAt(prev => (prev ? undefined : { at: scene.holeCenter(), bounds: boundsNow() }))
   }
 
   const h = input.horizon
-  const bounds: [number, number] = [canvasRef.current?.clientWidth ?? 0, canvasRef.current?.clientHeight ?? 0]
+  const promptIndex = promptCard ? h.turnLog.findIndex(t => t.start === promptCard.start) : -1
+  const shipIndex = shipCard ? h.subagents.findIndex(run => runKey(run) === shipCard.key) : -1
   return (
     <div className="relative w-full h-full">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ cursor: hover || overHole || overHex || overShip ? 'pointer' : 'default' }}
@@ -130,12 +137,15 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
           setHover(undefined); setOverHole(false); setOverHex(false); setOverShip(false)
           sceneRef.current?.hit(-1e6, -1e6, inputRef.current); sceneRef.current?.hoverHex(undefined)
         }} />
-      {insightsAt && <HoleInsights h={h} agents={agents} consumption={input.consumption} at={insightsAt} bounds={bounds} onClose={() => setInsightsAt(undefined)} />}
-      {shipCard && h.subagents[shipCard.sub] && (
-        <SubagentCard h={h} index={shipCard.sub} at={[shipCard.x, shipCard.y]} bounds={bounds} onClose={() => setShipCard(undefined)} />
+      {insightsAt && (
+        <HoleInsights h={h} agents={agents} consumption={input.consumption} at={insightsAt.at} bounds={insightsAt.bounds}
+          onClose={() => setInsightsAt(undefined)} />
       )}
-      {promptCard && h.turnLog[promptCard.turn] && (
-        <PromptCard h={h} index={promptCard.turn} at={[promptCard.x, promptCard.y]} bounds={bounds} onClose={() => setPromptCard(undefined)} />
+      {shipCard && shipIndex >= 0 && (
+        <SubagentCard h={h} index={shipIndex} at={shipCard.at} bounds={shipCard.bounds} onClose={() => setShipCard(undefined)} />
+      )}
+      {promptCard && promptIndex >= 0 && (
+        <PromptCard h={h} index={promptIndex} at={promptCard.at} bounds={promptCard.bounds} onClose={() => setPromptCard(undefined)} />
       )}
       {hover && (
         <div className="glass-card absolute font-mono pointer-events-none"
@@ -146,7 +156,7 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
           </div>
           <div className="mt-1 text-[13px] font-semibold" style={{ color: COLORS.holoHot }}>{formatDuration(hover.end - hover.start)}</div>
           <div className="text-[9px]" style={{ color: COLORS.textDim }}>
-            T+{formatDuration(hover.start - h.start)} → T+{formatDuration(hover.end - h.start)}
+            T−{formatDuration(h.start + h.elapsed - hover.start)} → {hover.end >= h.start + h.elapsed ? 'NOW' : `T−${formatDuration(h.start + h.elapsed - hover.end)}`}
           </div>
         </div>
       )}
@@ -357,16 +367,17 @@ function FlightRecorder({ h }: { h: TimeHorizon }) {
         ))}
       </div>
       <div className="flex justify-between text-[8px] mt-0.5" style={{ color: COLORS.textMuted }}>
-        <span>T+0</span><span>NOW</span>
+        <span>START</span><span>NOW</span>
       </div>
     </div>
   )
 }
 
 /**
- * The session's time as a black hole: the accretion disk is the timeline, spiralling from T+0
- * on its rim to now at the event horizon, each stretch colored by what the session was doing.
- * The prompt cache orbits in it, sinking toward the horizon as it ages. Opened from the top bar.
+ * The session's time as a black hole. Now (T+0) sits out on the accretion disk: the session so
+ * far trails back to the rim, each stretch colored by what it was doing, and the time to come
+ * spirals in to the horizon, where the context window fills. The prompt cache orbits in it,
+ * sinking toward the horizon as it ages. Opened from the top bar.
  */
 export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, currentTime, onClose }: {
   events: readonly SimulationEvent[]

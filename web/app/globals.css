@@ -237,6 +237,8 @@
 @media (prefers-reduced-motion: reduce) {
   .eco-moon, .eco-moon * { animation: none !important; }
   .eco-delta-chip { display: none; }
+  /* Between the column and the row in one step, not a flight */
+  .eco-flight { transition: none !important; }
 }
 
 /* Time horizon */

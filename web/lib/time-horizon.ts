@@ -63,6 +63,9 @@ export interface SubagentRun {
   outputTokens: number
 }
 
+/** A run's identity: names repeat (several `Explore` subagents), a name and its start don't */
+export const runKey = (run: SubagentRun) => `${run.name}@${run.start}`
+
 export interface Turn {
   start: number
   /** When the model ended the turn; undefined while it runs */

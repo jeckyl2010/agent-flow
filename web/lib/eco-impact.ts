@@ -69,7 +69,7 @@ const ALIASES = new Map(data.aliases.map(a => [a.name, a.alias]))
 const MIXES = data.electricityMixes as ElectricityMix[]
 
 /** Where Anthropic's requests are figured: EcoLogits puts its data centers in the USA */
-export const DEFAULT_ZONE = data.provider.location
+const DEFAULT_ZONE = data.provider.location
 
 const lo = (v: ValueOrRange) => (typeof v === 'number' ? v : v.min)
 const hi = (v: ValueOrRange) => (typeof v === 'number' ? v : v.max)
@@ -153,9 +153,9 @@ export function llmImpacts(
   }
 }
 
-export const IMPACT_KINDS: readonly ImpactKind[] = ['energy', 'gwp', 'wcf', 'adpe', 'pe']
+const IMPACT_KINDS: readonly ImpactKind[] = ['energy', 'gwp', 'wcf', 'adpe', 'pe']
 
-export function zeroImpacts(): EcoImpacts {
+function zeroImpacts(): EcoImpacts {
   const z = () => ({ min: 0, max: 0 })
   return { energy: z(), gwp: z(), adpe: z(), pe: z(), wcf: z() }
 }
@@ -175,8 +175,9 @@ export interface SessionImpacts {
 }
 
 /**
- * The session's impacts, from each agent's measured requests (the agent-flow-bridge mod).
- * An agent's requests are figured at its latest model; agents without measured usage add nothing.
+ * The session's impacts, from each agent's measured requests: per model where the usage says how
+ * it split (an agent can switch models), otherwise all at its latest model. Agents without
+ * measured usage add nothing.
  */
 export function sessionImpacts(agents: Map<string, Agent>, zone = DEFAULT_ZONE): SessionImpacts {
   const total = zeroImpacts()
@@ -189,16 +190,21 @@ export function sessionImpacts(agents: Map<string, Agent>, zone = DEFAULT_ZONE):
       continue
     }
     if (!a.spend.isComplete) isPartial = true
-    const impacts = llmImpacts(a.modelTag?.model ?? a.model, a.spend.output, a.spend.steps, zone)
-    if (!impacts) {
-      uncountedAgents++
-      continue
+    const parts = a.spend.byModel?.length
+      ? a.spend.byModel
+      : [{ model: a.modelTag?.model ?? a.model ?? '', output: a.spend.output, requests: a.spend.steps }]
+    let counted = false
+    for (const part of parts) {
+      const impacts = llmImpacts(part.model, part.output, part.requests, zone)
+      if (!impacts) continue
+      counted = true
+      outputTokens += part.output
+      for (const k of IMPACT_KINDS) {
+        total[k].min += impacts[k].min
+        total[k].max += impacts[k].max
+      }
     }
-    outputTokens += a.spend.output
-    for (const k of IMPACT_KINDS) {
-      total[k].min += impacts[k].min
-      total[k].max += impacts[k].max
-    }
+    if (!counted) uncountedAgents++
   }
   return { total, outputTokens, uncountedAgents, isPartial }
 }

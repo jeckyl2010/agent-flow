@@ -5,8 +5,9 @@ import * as os from 'os'
 import { AgentEvent, SessionInfo, WatchedSession } from './protocol'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
-  SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
+  SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
 } from './constants'
+import { createWatchedSession } from './watched-session'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
 import { TranscriptParser } from './transcript-parser'
 import { readNewFileLines, foldPathCase } from './fs-utils'
@@ -386,35 +387,7 @@ export class SessionWatcher implements AgentSessionWatcher {
 
   private watchSession(sessionId: string, filePath: string): void {
     const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
-    const session: WatchedSession = {
-      sessionId,
-      filePath,
-      fileWatcher: null,
-      pollTimer: null,
-      fileSize: 0,
-      sessionStartTime: Date.now(),
-      pendingToolCalls: new Map(),
-      seenToolUseIds: new Set(),
-      seenMessageHashes: new Set(),
-      usageSeenIds: new Set(),
-      usageTotals: new Map(),
-      sessionDetected: false,
-      sessionCompleted: false,
-      lastActivityTime: this.newestMtime(filePath, sessionId),
-      inactivityTimer: null,
-      subagentWatchers: new Map(),
-      spawnedSubagents: new Set(),
-      inlineProgressAgents: new Set(),
-      subagentsDirWatcher: null,
-      subagentsDir: null,
-      label: defaultLabel,
-      labelSet: false,
-      model: null,
-      modelDetectedAgents: new Map(),
-      permissionTimer: null,
-      permissionEmitted: false,
-      contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
-    }
+    const session = createWatchedSession(sessionId, filePath, { label: defaultLabel, lastActivityTime: this.newestMtime(filePath, sessionId) })
     this.sessions.set(sessionId, session)
 
     const stat = fs.statSync(filePath)

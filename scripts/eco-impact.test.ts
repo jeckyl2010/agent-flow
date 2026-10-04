@@ -89,6 +89,30 @@ test('the session sums its measured agents and says what it left out', () => {
   assert.equal(sessionImpacts(agents).isPartial, true)
 })
 
+test('an agent that switched models is figured per model, not all at its latest', () => {
+  const switched = agent('main', {
+    isMain: true, model: 'claude-opus-5-5', modelTag: { model: 'claude-opus-5-5', changedAt: 0 },
+    spend: {
+      ...spend(1000, 4),
+      byModel: [{ model: 'claude-haiku-4-5', output: 800, requests: 3 }, { model: 'claude-opus-5-5', output: 200, requests: 1 }],
+    },
+  })
+  const s = sessionImpacts(new Map([['main', switched]]))
+  const haiku = llmImpacts('claude-haiku-4-5', 800, 3)!
+  const opus = llmImpacts('claude-opus-5-5', 200, 1)!
+  assert.ok(Math.abs(s.total.energy.max - (haiku.energy.max + opus.energy.max)) < 1e-15)
+  assert.equal(s.outputTokens, 1000)
+  // All of it at Opus would be more than twice the energy
+  assert.ok(llmImpacts('claude-opus-5-5', 1000, 4)!.energy.max > 2 * s.total.energy.max)
+})
+
+test('a breakdown with only models EcoLogits lacks leaves the agent uncounted', () => {
+  const codex = agent('codex', { model: 'gpt-5.3-codex', spend: { ...spend(300, 1), byModel: [{ model: 'gpt-5.3-codex', output: 300, requests: 1 }] } })
+  const s = sessionImpacts(new Map([['codex', codex]]))
+  assert.equal(s.uncountedAgents, 1)
+  assert.equal(s.outputTokens, 0)
+})
+
 test('values read in the unit that fits', () => {
   assert.deepEqual(formatImpact('energy', 4.526), { value: '4.53', unit: 'kWh' })
   assert.deepEqual(formatImpact('energy', 0.1), { value: '100', unit: 'Wh' })
