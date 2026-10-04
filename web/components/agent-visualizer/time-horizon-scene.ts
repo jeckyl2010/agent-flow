@@ -73,6 +73,17 @@ export interface Scene {
   hexAt(x: number, y: number): { turn: number; x: number; y: number } | undefined
   /** Lights a prompt hexagon, or none */
   hoverHex(turn: number | undefined): void
+  /** The subagent under a canvas point, a ship in flight or its lane in the past: its index, and where */
+  shipAt(x: number, y: number): { sub: number; x: number; y: number } | undefined
+}
+
+/** Subagents by model: small cool scouts to warm heavy ones */
+export function shipColor(model?: string): string {
+  const m = (model ?? '').toLowerCase()
+  if (m.includes('haiku')) return '#7fe0ff'
+  if (m.includes('sonnet')) return '#c9a0ff'
+  if (m.includes('opus') || m.includes('fable') || m.includes('mythos')) return '#ffd59e'
+  return '#e8eefc'
 }
 
 const hex = (a: number) => Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, '0')
@@ -323,6 +334,148 @@ export function createScene(reducedMotion: boolean): Scene {
       ctx.lineWidth = 1.6 * scale
       const [x0, y0] = projected[i], [x1, y1] = projected[i + 1]
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+    }
+    ctx.globalCompositeOperation = 'source-over'
+  }
+
+  // ─── Subagents ────────────────────────────────────────────────────────────
+  /** A ship's flight, kept across frames: launched when it was first seen out, landed when it came back */
+  interface Flight { launchedAt?: number; returnedAt?: number; landed: boolean; trail: Array<[number, number]>; requests: number }
+  const flights = new Map<string, Flight>()
+  interface Spark { x: number; y: number; vx: number; vy: number; life: number; color: string }
+  const sparks: Spark[] = []
+  /** Ships and lane points as last drawn, for hit testing */
+  let shipHits: Array<{ sub: number; x: number; y: number }> = []
+  let laneHits: Array<{ sub: number; x: number; y: number }> = []
+  let shipsSeen = false
+  const LAUNCH_MS = 1700
+
+  const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
+  /** Each ship its own slingshot orbit round the hole: radius, tilt and phase by its place in line */
+  function orbitPoint(k: number, now: number): [number, number] {
+    const r = 210 + (k % 4) * 40
+    const tiltK = 0.3 + ((k % 3) - 1) * 0.13
+    const theta = (k * 1.7) + (reducedMotion ? 0 : now * 0.00055 * (250 / r) ** 1.5)
+    const x = r * Math.cos(theta), y = r * Math.sin(theta) * tiltK
+    return [cx + (x * cosA - y * sinA) * scale, cy + (x * sinA + y * cosA) * scale]
+  }
+  /** Where a moment of the past sits on the disk: ships leave and land there */
+  const diskPoint = (h: TimeHorizon, t: number): [number, number] => {
+    const { theta, r } = spiral(pastU(h, Math.max(h.start, Math.min(t, h.start + h.elapsed))))
+    return project(r, theta)
+  }
+
+  /** Each subagent's time out, a thin lane beside the disk: overlapping lanes are parallel work */
+  function drawLanes(ctx: CanvasRenderingContext2D, h: TimeHorizon, front: boolean) {
+    if (front) laneHits = []
+    ctx.globalCompositeOperation = 'lighter'
+    ctx.lineCap = 'butt'
+    h.subagents.forEach((run, k) => {
+      const u0 = pastU(h, Math.max(run.start, h.start)), u1 = pastU(h, run.end ?? h.start + h.elapsed)
+      const i0 = Math.floor(u0 * SAMPLES), i1 = Math.min(Math.round(U_NOW * SAMPLES), Math.ceil(u1 * SAMPLES))
+      const color = shipColor(run.model)
+      const lift = 12 + (k % 3) * 6
+      for (let i = i0; i < i1; i++) {
+        const a = spiral(i / SAMPLES), b = spiral((i + 1) / SAMPLES)
+        if ((Math.sin(a.theta) > 0) !== front) continue
+        const [x0, y0] = project(a.r + lift, a.theta), [x1, y1] = project(b.r + lift, b.theta)
+        ctx.strokeStyle = color + hex(0.55 * beaming(a.theta))
+        ctx.lineWidth = 1.5 * scale
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+        if (i % 4 === 0) laneHits.push({ sub: k, x: x0, y: y0 })
+      }
+    })
+    ctx.globalCompositeOperation = 'source-over'
+  }
+
+  /**
+   * Subagents in flight: launched from the disk where they were sent out, swinging round the hole
+   * while they work, sparking with each of their requests, and flying back to land on the disk
+   * where they returned, in a flash. Size is what they've written; color, their model.
+   */
+  function drawShips(ctx: CanvasRenderingContext2D, h: TimeHorizon, now: number, dt: number) {
+    shipHits = []
+    h.subagents.forEach((run, k) => {
+      let f = flights.get(run.name)
+      if (!f) {
+        // Out already when the view opened: in orbit. Back already: only its lane
+        f = { launchedAt: shipsSeen ? now : now - LAUNCH_MS, landed: !shipsSeen && run.end !== undefined, trail: [], requests: run.requests }
+        flights.set(run.name, f)
+      }
+      if (f.landed) return
+      if (run.end !== undefined && f.returnedAt === undefined) f.returnedAt = now
+
+      const orbit = orbitPoint(k, now)
+      let pos = orbit
+      const launch = Math.min(1, (now - (f.launchedAt ?? now)) / LAUNCH_MS)
+      if (launch < 1) {
+        const from = diskPoint(h, run.start)
+        const e = ease(launch)
+        pos = [from[0] + (orbit[0] - from[0]) * e, from[1] + (orbit[1] - from[1]) * e]
+      }
+      if (f.returnedAt !== undefined) {
+        const back = Math.min(1, (now - f.returnedAt) / LAUNCH_MS)
+        const to = diskPoint(h, run.end!)
+        const e = ease(back)
+        pos = [orbit[0] + (to[0] - orbit[0]) * e, orbit[1] + (to[1] - orbit[1]) * e]
+        if (back >= 1) {
+          f.landed = true
+          flashes.push({ x: to[0], y: to[1], age: 0 })
+          flare = Math.min(1.5, flare + 0.4)
+          return
+        }
+      }
+
+      const color = shipColor(run.model)
+      // A spark for each request it makes
+      if (run.requests > f.requests) {
+        for (let i = 0; i < 6 * (run.requests - f.requests) && i < 24; i++) {
+          const a = Math.random() * Math.PI * 2, v = 0.03 + Math.random() * 0.05
+          sparks.push({ x: pos[0], y: pos[1], vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, color })
+        }
+        f.requests = run.requests
+      }
+
+      f.trail.push(pos)
+      if (f.trail.length > 46) f.trail.shift()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.lineCap = 'butt'
+      for (let i = 1; i < f.trail.length; i++) {
+        const t = i / f.trail.length
+        ctx.strokeStyle = color + hex(t * t * 0.55)
+        ctx.lineWidth = t * 2.6 * scale
+        ctx.beginPath(); ctx.moveTo(f.trail[i - 1][0], f.trail[i - 1][1]); ctx.lineTo(f.trail[i][0], f.trail[i][1]); ctx.stroke()
+      }
+      ctx.globalCompositeOperation = 'source-over'
+
+      const size = (3 + Math.log2(1 + run.outputTokens) / 3.2) * scale
+      const [px, py] = f.trail.length > 1 ? f.trail[f.trail.length - 2] : [pos[0] - 1, pos[1]]
+      ctx.save()
+      ctx.translate(pos[0], pos[1])
+      ctx.rotate(Math.atan2(pos[1] - py, pos[0] - px))
+      ctx.fillStyle = color
+      ctx.shadowColor = color
+      ctx.shadowBlur = 14
+      ctx.beginPath()
+      ctx.moveTo(size * 1.6, 0); ctx.lineTo(-size, -size); ctx.lineTo(-size * 0.4, 0); ctx.lineTo(-size, size)
+      ctx.closePath(); ctx.fill()
+      ctx.restore()
+      ctx.font = `${Math.max(8.5, 9 * scale)}px monospace`
+      ctx.textAlign = 'left'
+      ctx.fillStyle = color + 'cc'
+      ctx.fillText(run.name.length > 18 ? `${run.name.slice(0, 17)}…` : run.name, pos[0] + size + 6, pos[1] - size - 2)
+      shipHits.push({ sub: k, x: pos[0], y: pos[1] })
+    })
+    shipsSeen = true
+
+    ctx.globalCompositeOperation = 'lighter'
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const sp = sparks[i]
+      sp.x += sp.vx * dt; sp.y += sp.vy * dt
+      sp.life -= dt / 700
+      if (sp.life <= 0) { sparks.splice(i, 1); continue }
+      ctx.fillStyle = sp.color + hex(sp.life * 0.9)
+      ctx.beginPath(); ctx.arc(sp.x, sp.y, 1.4 * scale, 0, Math.PI * 2); ctx.fill()
     }
     ctx.globalCompositeOperation = 'source-over'
   }
@@ -722,6 +875,14 @@ export function createScene(reducedMotion: boolean): Scene {
       return best
     },
     hoverHex(turn) { litHex = turn },
+    shipAt(x, y) {
+      let best: { sub: number; x: number; y: number } | undefined, bestD = (14 * scale) ** 2
+      for (const hit of [...shipHits, ...laneHits]) {
+        const d = (hit.x - x) ** 2 + (hit.y - y) ** 2
+        if (d < bestD) { bestD = d; best = hit }
+      }
+      return best
+    },
 
     hit(x, y, input) {
       const h = input.horizon
@@ -768,6 +929,7 @@ export function createScene(reducedMotion: boolean): Scene {
         return project(r, theta)
       })
       drawDisk(ctx, h, false)
+      drawLanes(ctx, h, false)
       drawFuture(ctx, input, now, false)
       drawMatter(ctx, h, dt, false)
       drawVictims(ctx, now, dt)
@@ -777,10 +939,12 @@ export function createScene(reducedMotion: boolean): Scene {
       drawRadiation(ctx, h, dt)
       drawGas(ctx, dt, now, 'near')
       drawDisk(ctx, h, true)
+      drawLanes(ctx, h, true)
       drawFuture(ctx, input, now, true)
       drawMatter(ctx, h, dt, true)
       drawMarkers(ctx, input, now)
       drawCache(ctx, input, now)
+      drawShips(ctx, h, now, dt)
       drawNow(ctx, input, now)
       drawFlashes(ctx, dt)
     },

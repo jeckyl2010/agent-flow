@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import type { SimulationEvent } from '../web/lib/agent-types'
-import { timeHorizon, formatDuration, longest, predictConsumption } from '../web/lib/time-horizon'
+import { timeHorizon, formatDuration, longest, predictConsumption, parallelism } from '../web/lib/time-horizon'
 
 const ev = (time: number, type: SimulationEvent['type'], payload: Record<string, unknown> = {}): SimulationEvent =>
   ({ time, type, payload: { agent: 'orchestrator', ...payload } })
@@ -155,6 +155,43 @@ test('the context fills at the rate it has been growing', () => {
   // Not growing, or too little to go on: no prediction
   assert.equal(predictConsumption(samples.map(s => ({ ...s, tokens: 5000 })), 1_000_000, 180), undefined)
   assert.equal(predictConsumption(samples.slice(0, 2), 1_000_000, 180), undefined)
+})
+
+test('subagents are tracked from dispatch to return', () => {
+  const h = timeHorizon([
+    spawn,
+    ev(0, 'message', { role: 'user', content: 'research it' }),
+    ev(1, 'subagent_dispatch', { parent: 'orchestrator', child: 'scout', task: 'Map the payment flow' }),
+    ev(1, 'agent_spawn', { agent: undefined, name: 'scout', parent: 'orchestrator' }),
+    ev(2, 'model_detected', { agent: 'scout', model: 'claude-haiku-4-5' }),
+    ev(3, 'tool_call_start', { agent: 'scout', tool: 'Grep' }),
+    ev(4, 'model_step', { agent: 'scout', usage: { output_tokens: 300 } }),
+    ev(9, 'subagent_return', { child: 'scout', parent: 'orchestrator', summary: 'Three services, one queue' }),
+    ev(9, 'agent_complete', { agent: undefined, name: 'scout' }),
+  ], 12)
+  assert.deepEqual(h.subagents, [{
+    name: 'scout', start: 1, end: 9, task: 'Map the payment flow', model: 'claude-haiku-4-5',
+    summary: 'Three services, one queue', requests: 1, tools: 1, outputTokens: 300,
+  }])
+})
+
+test('subagents in parallel pack more agent time than the wall clock', () => {
+  // As the relay sends them: a spawn and a completion name the agent, with no `agent` field
+  const sub = (name: string, from: number, to?: number) => [
+    ev(from, 'agent_spawn', { agent: undefined, name, parent: 'orchestrator' }),
+    ...(to === undefined ? [] : [ev(to, 'agent_complete', { agent: undefined, name })]),
+  ]
+  const h = timeHorizon([
+    spawn,
+    ev(0, 'message', { role: 'user' }),
+    ev(2, 'tool_call_start', { tool: 'Agent' }),
+    ...sub('a', 2, 12), ...sub('b', 2, 10), ...sub('c', 4),
+    ev(12, 'tool_call_end', { tool: 'Agent' }),
+  ].sort((x, y) => x.time - y.time), 20)
+  // Main: thinking 0-2 and 12-20; subagents 10 + 8 + 16 (c still out)
+  const p = parallelism(h)
+  assert.equal(p.agentTime, 10 + 10 + 8 + 16)
+  assert.equal(p.peak, 3)
 })
 
 test('durations read as m:ss or h:mm:ss', () => {

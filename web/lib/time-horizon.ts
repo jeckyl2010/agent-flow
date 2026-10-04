@@ -45,6 +45,22 @@ export interface TimeHorizon {
   turnLog: Turn[]
   /** The main agent's context after each of its requests, tokens: it grows until the window fills */
   context: ContextSample[]
+  /** Each subagent the session sent out, in order */
+  subagents: SubagentRun[]
+}
+
+export interface SubagentRun {
+  name: string
+  start: number
+  /** When it came back; undefined while it runs */
+  end?: number
+  task?: string
+  model?: string
+  /** What it brought back */
+  summary?: string
+  requests: number
+  tools: number
+  outputTokens: number
 }
 
 export interface Turn {
@@ -106,6 +122,11 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
   const emissions: Emission[] = []
   const turnLog: Turn[] = []
   const context: ContextSample[] = []
+  const subagents: SubagentRun[] = []
+  /** The run of each subagent still out, by name */
+  const out = new Map<string, SubagentRun>()
+  /** Tasks the dispatch named, for the spawn that follows it */
+  const dispatched = new Map<string, string>()
 
   const kindNow = (): TimeKind => {
     if (!inTurn) return 'waiting'
@@ -144,6 +165,52 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
     if (e.time > now) break
     advance(e.time)
     const p = e.payload
+    // Subagents: sent out, working, and back
+    const sub = out.get(str(p.agent))
+    switch (e.type) {
+      case 'subagent_dispatch':
+        dispatched.set(str(p.child), str(p.task))
+        break
+      case 'agent_spawn':
+        if (p.isMain !== true && str(p.name)) {
+          const name = str(p.name)
+          const run: SubagentRun = {
+            name, start: e.time, task: str(p.task) || dispatched.get(name) || undefined,
+            model: str(p.model) || undefined, requests: 0, tools: 0, outputTokens: 0,
+          }
+          subagents.push(run)
+          out.set(name, run)
+        }
+        break
+      case 'model_detected':
+        if (sub) sub.model = str(p.model) || sub.model
+        break
+      case 'model_step':
+        if (sub) {
+          sub.requests++
+          sub.outputTokens += num(((p.usage ?? {}) as Record<string, unknown>).output_tokens)
+          sub.model = str(p.model) || sub.model
+        }
+        break
+      case 'tool_call_start':
+        if (sub && !HIDDEN_TOOLS.has(str(p.tool))) sub.tools++
+        break
+      case 'subagent_return': {
+        const back = out.get(str(p.child))
+        if (back) {
+          back.summary = str(p.summary) || back.summary
+          back.end ??= e.time
+          out.delete(back.name)
+        }
+        break
+      }
+      case 'agent_complete': {
+        const done = out.get(str(p.name))
+        if (done) { done.end ??= e.time; out.delete(done.name) }
+        break
+      }
+    }
+
     if (e.type === 'model_step') {
       const output = num(((p.usage ?? {}) as Record<string, unknown>).output_tokens)
       emissions.push({ time: e.time, outputTokens: output })
@@ -222,7 +289,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
     }
   }
 
-  return { totals, segments, elapsed: Math.max(0, now - start), start, turns, cache, emissions, turnLog, context }
+  return { totals, segments, elapsed: Math.max(0, now - start), start, turns, cache, emissions, turnLog, context, subagents }
 }
 
 /** `1:02:03`, or `2:03` under an hour */
@@ -275,4 +342,33 @@ export function predictConsumption(context: readonly ContextSample[], windowSize
   const eta = (windowSize - current) / perSecond - (now - recent[n - 1].time)
   if (eta > MAX_ETA_S) return undefined
   return { eta: Math.max(0, eta), rate: perSecond * 60, fill }
+}
+
+export interface Parallelism {
+  /** Agent time in the span, s: the main agent working, plus every subagent's time out */
+  agentTime: number
+  /** The most subagents out at once */
+  peak: number
+}
+
+/**
+ * How much agent time the session packed into its span. The main agent's own work (thinking and
+ * tools; while it waits on subagents, they're the ones working) plus each subagent's time out.
+ * With subagents in parallel it passes the wall clock: more time goes by for them than for you.
+ */
+export function parallelism(h: TimeHorizon): Parallelism {
+  const now = h.start + h.elapsed
+  let agentTime = h.totals.thinking + h.totals.tools
+  const edges: Array<[number, number]> = []
+  for (const run of h.subagents) {
+    const from = Math.max(run.start, h.start), to = Math.min(run.end ?? now, now)
+    if (to <= from) continue
+    agentTime += to - from
+    edges.push([from, 1], [to, -1])
+  }
+  // Ends before starts at the same moment: one back as another leaves isn't two out at once
+  edges.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  let current = 0, peak = 0
+  for (const [, step] of edges) { current += step; peak = Math.max(peak, current) }
+  return { agentTime, peak }
 }
