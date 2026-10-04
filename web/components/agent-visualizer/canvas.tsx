@@ -6,6 +6,7 @@ import type { SimulationState } from '@/hooks/simulation/types'
 import { getStateColor } from '@/lib/colors'
 import { ANIM_SPEED, FRAME_RATE, PERF_OVERLAY, PERF_OVERLAY_ENABLED } from '@/lib/canvas-constants'
 import { frameLimiter } from '@/lib/frame-limiter'
+import { activityTracker } from '@/lib/activity'
 import { BloomRenderer } from './bloom-renderer'
 import { createDepthParticles, updateDepthParticles, drawBackground } from './background-layer'
 import {
@@ -173,14 +174,14 @@ export function AgentCanvas({
 
   // ─── Frame rate: full while something happens, calm when settled ──────
   const limiterRef = useRef(frameLimiter())
-  /** When something last happened: an event, a particle or effect, the pointer. Not by itself a
+  /** Whether something is happening: an event, a particle or effect, the pointer. Not by itself a
    *  long-running tool (its spinner reads fine at the calm rate) or the camera: auto-fit follows
    *  the force layout, which never quite comes to rest, and refits that matter follow events */
-  const activityRef = useRef({ at: 0, events: -1 })
+  const activityRef = useRef(activityTracker(FRAME_RATE.activeWindowMs))
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const touch = () => { activityRef.current.at = performance.now() }
+    const touch = () => activityRef.current.touch(performance.now())
     const opts = { passive: true } as const
     el.addEventListener('pointermove', touch, opts)
     el.addEventListener('pointerdown', touch, opts)
@@ -193,13 +194,13 @@ export function AgentCanvas({
   }, [])
 
   const isActive = useCallback((timestamp: number): boolean => {
-    const a = activityRef.current
     const s = simulationRef.current
-    const busy = s.particles.length > 0 || effectsRef.current.length > 0 || drawPropsRef.current.isDragging
-      || s.eventLog.length !== a.events
-    a.events = s.eventLog.length
-    if (busy) a.at = timestamp
-    return timestamp - a.at < FRAME_RATE.activeWindowMs
+    return activityRef.current.active(timestamp, {
+      lastEvent: s.eventLog[s.eventLog.length - 1],
+      particles: s.particles.length,
+      effects: effectsRef.current.length,
+      dragging: drawPropsRef.current.isDragging,
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only
   }, [])
 

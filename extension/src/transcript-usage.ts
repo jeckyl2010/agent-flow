@@ -43,6 +43,7 @@ export function addUsage(all: Map<string, UsageTotals>, agentName: string, model
     cache_read_input_tokens: (sum?.cache_read_input_tokens ?? 0) + usage.cache_read_input_tokens,
     cache_creation_input_tokens: (sum?.cache_creation_input_tokens ?? 0) + usage.cache_creation_input_tokens,
     cache_creation_1h_input_tokens: (sum?.cache_creation_1h_input_tokens ?? 0) + (usage.cache_creation_1h_input_tokens ?? 0),
+    requests: (sum?.requests ?? 0) + 1,
   })
   return totals
 }

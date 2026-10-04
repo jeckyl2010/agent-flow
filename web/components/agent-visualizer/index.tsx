@@ -77,6 +77,9 @@ export function AgentVisualizer() {
   const [showTranscript, setShowTranscript] = useState(false)
   const [showHorizon, setShowHorizon] = useState(false)
   const closeHorizon = useCallback(() => setShowHorizon(false), [])
+  // A right-click menu is momentary: the time horizon opening dismisses it, not saves it for later
+  const { setContextMenu } = selection
+  useEffect(() => { if (showHorizon) setContextMenu(null) }, [showHorizon, setContextMenu])
 
   // Mutually exclusive panel toggling — opening one closes the others
   const toggleExclusivePanel = useCallback((panel: 'files' | 'transcript' | 'cost') => {
@@ -324,8 +327,11 @@ export function AgentVisualizer() {
         selectedAgentId={selection.selectedAgentId}
       />
 
+      {/* The main view's pop-ups sit above the time horizon's layer: hidden while it's open, and
+          back with the selection kept when it closes */}
+
       {/* Agent detail card (floating, tethered to node) */}
-      {selectedAgent && selection.selectedAgentWorldPos && (
+      {!showHorizon && selectedAgent && selection.selectedAgentWorldPos && (
         <div {...stopPropagationHandlers}>
           <AgentDetailCard
             agent={selectedAgent}
@@ -335,7 +341,7 @@ export function AgentVisualizer() {
       )}
 
       {/* Tool call detail popup */}
-      {selection.selectedToolData && selection.selectedToolScreenPos && (
+      {!showHorizon && selection.selectedToolData && selection.selectedToolScreenPos && (
         <div {...stopPropagationHandlers}>
           <ToolDetailPopup
             tool={selection.selectedToolData}
@@ -346,7 +352,7 @@ export function AgentVisualizer() {
       )}
 
       {/* Discovery detail popup */}
-      {selection.selectedDiscoveryData && selection.selectedDiscoveryScreenPos && (
+      {!showHorizon && selection.selectedDiscoveryData && selection.selectedDiscoveryScreenPos && (
         <div {...stopPropagationHandlers}>
           <DiscoveryDetailPopup
             discovery={selection.selectedDiscoveryData}
@@ -358,7 +364,7 @@ export function AgentVisualizer() {
 
       {/* Chat panel (bottom-right, shown when agent selected) */}
       <AgentChatPanel
-        visible={!!selectedAgent}
+        visible={!!selectedAgent && !showHorizon}
         agentName={selectedAgent?.name ?? ''}
         agentState={selectedAgent?.state ?? 'idle'}
         conversation={selectedConversation}
@@ -367,7 +373,7 @@ export function AgentVisualizer() {
       />
 
       {/* Context menu */}
-      {selection.contextMenu && (
+      {!showHorizon && selection.contextMenu && (
         <GlassContextMenu
           position={selection.contextMenu}
           items={contextMenuItems}

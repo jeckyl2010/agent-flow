@@ -1,4 +1,4 @@
-import type { Agent, AgentSpend, ModelStepPulse, ModelTag } from '@/lib/agent-types'
+import type { Agent, AgentSpend, ModelOutput, ModelStepPulse, ModelTag } from '@/lib/agent-types'
 import { effortColor } from '@/lib/effort'
 import { modelTagLabel } from '@/lib/utils'
 import { stepCost, cacheHitRatio, type StepUsage } from '@/lib/model-pricing'
@@ -24,11 +24,17 @@ function spendFromTotals(v: unknown, isComplete: boolean): Omit<AgentSpend, 'las
   if (!v || typeof v !== 'object') return undefined
   const { steps, byModel } = v as { steps?: unknown; byModel?: unknown }
   if (typeof steps !== 'number' || !Array.isArray(byModel)) return undefined
-  const spend = { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, steps, isComplete }
+  const spend = { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, steps, isComplete, byModel: [] as ModelOutput[] }
   for (const entry of byModel) {
     const usage = asUsage(entry)
     if (!usage) continue
     const model = typeof (entry as { model?: unknown }).model === 'string' ? (entry as { model: string }).model : undefined
+    const requests = (entry as { requests?: unknown }).requests
+    if (model) spend.byModel.push({
+      model, output: usage.output_tokens,
+      // Older relays sent no count per model: a single model made them all
+      requests: typeof requests === 'number' ? requests : byModel.length === 1 ? steps : 0,
+    })
     spend.cost += stepCost(usage, model)
     spend.input += usage.input_tokens
     spend.output += usage.output_tokens
@@ -39,8 +45,15 @@ function spendFromTotals(v: unknown, isComplete: boolean): Omit<AgentSpend, 'las
 }
 
 /** Adds one request to what the agent had: for events that carry no totals (the demo scenario) */
-function addStep(prev: AgentSpend | undefined, usage: StepUsage, cost: number): Omit<AgentSpend, 'lastCacheHit'> {
+function addStep(prev: AgentSpend | undefined, usage: StepUsage, cost: number, model?: string): Omit<AgentSpend, 'lastCacheHit'> {
+  const byModel = (prev?.byModel ?? []).map(m => ({ ...m }))
+  if (model) {
+    const entry = byModel.find(m => m.model === model)
+    if (entry) { entry.output += usage.output_tokens; entry.requests++ }
+    else byModel.push({ model, output: usage.output_tokens, requests: 1 })
+  }
   return {
+    byModel,
     cost: (prev?.cost ?? 0) + cost,
     input: (prev?.input ?? 0) + usage.input_tokens,
     output: (prev?.output ?? 0) + usage.output_tokens,
@@ -66,7 +79,7 @@ export function handleModelStep(
   const model = typeof payload.model === 'string' ? payload.model : agent.model
   const effort = typeof payload.effort === 'string' ? payload.effort : undefined
   const cost = stepCost(usage, model)
-  const totals = spendFromTotals(payload.totals, payload.isComplete === true) ?? addStep(agent.spend, usage, cost)
+  const totals = spendFromTotals(payload.totals, payload.isComplete === true) ?? addStep(agent.spend, usage, cost, model)
   const spend: AgentSpend = { ...totals, lastCacheHit: cacheHitRatio(usage) ?? agent.spend?.lastCacheHit }
   const pulse: ModelStepPulse = {
     time: currentTime,

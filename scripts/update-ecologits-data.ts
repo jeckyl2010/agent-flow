@@ -21,10 +21,22 @@ const PROVIDER = {
   wue: { min: 0.13, max: 0.999 },
 }
 
-async function fetchJson(path: string): Promise<any> {
+// The parts of EcoLogits' data files this reads: a change in their shape fails here, not later
+interface EcoModel { provider: string; name: string; architecture: unknown; deployment?: unknown; warnings?: string[] }
+interface EcoAlias { provider: string; name: string; alias: string }
+interface EcoMix { name: string; adpe: number; pe: number; gwp: number; wue: number }
+
+async function fetchJson(path: string): Promise<unknown> {
   const res = await fetch(`https://raw.githubusercontent.com/${REPO}/${ref}/${path}`)
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`)
   return res.json()
+}
+
+/** The array at `key` of a fetched file, or a clear error if EcoLogits changed the shape */
+function list<T>(file: unknown, key: string, path: string): T[] {
+  const value = (file as Record<string, unknown> | null)?.[key]
+  if (!Array.isArray(value)) throw new Error(`${path}: expected an array at "${key}"`)
+  return value as T[]
 }
 
 async function main() {
@@ -33,13 +45,13 @@ async function main() {
   const models = await fetchJson('ecologits/data/models.json')
   const mixes = await fetchJson('ecologits/data/electricity_mixes.json')
 
-  const anthropic = (models.models as any[])
+  const anthropic = list<EcoModel>(models, 'models', 'models.json')
     .filter(m => m.provider === 'anthropic')
     .map(m => ({ name: m.name, architecture: m.architecture, deployment: m.deployment, warnings: m.warnings }))
-  const aliases = (models.aliases as any[])
+  const aliases = list<EcoAlias>(models, 'aliases', 'models.json')
     .filter(a => a.provider === 'anthropic')
     .map(a => ({ name: a.name, alias: a.alias }))
-  const electricityMixes = (mixes.electricity_mixes as any[])
+  const electricityMixes = list<EcoMix>(mixes, 'electricity_mixes', 'electricity_mixes.json')
     .filter(m => ZONES.includes(m.name))
     .map(({ name, adpe, pe, gwp, wue }) => ({ name, adpe, pe, gwp, wue }))
 
