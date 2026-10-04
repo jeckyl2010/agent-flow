@@ -172,11 +172,13 @@ export function AgentVisualizer() {
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleResumeLive = useCallback(() => {
     setIsReviewing(false)
+    // Live runs in real time: the review's playback speed stays behind (set first, the seek keeps it)
+    setSpeed(1)
     seekToTime(maxTimeReached)
     setZoomToFitTrigger(n => n + 1)
     if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
     resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; play() }, TIMING.resumeLiveDelayMs)
-  }, [seekToTime, maxTimeReached, play])
+  }, [seekToTime, maxTimeReached, play, setSpeed])
   useEffect(() => () => { if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current) }, [])
 
   const handleRestart = useCallback(() => {
@@ -198,9 +200,10 @@ export function AgentVisualizer() {
     deselectAgent: () => { selection.clearAgent() },
     closeTranscript: () => { setShowTranscript(false) },
     toggleMute: handleToggleMute,
-    setSpeed,
+    // Speed is for reviewing: live runs in real time
+    setSpeed: (s: number) => { if (isReviewing) setSpeed(s) },
     selectedAgentId: selection.selectedAgentId,
-  }), [handlePlayPause, selection.clearAllSelections, selection.clearAgent, selection.selectedAgentId, setSpeed, handleToggleMute, toggleExclusivePanel])
+  }), [handlePlayPause, selection.clearAllSelections, selection.clearAgent, selection.selectedAgentId, setSpeed, isReviewing, handleToggleMute, toggleExclusivePanel])
 
   useKeyboardShortcuts(keyboardActions)
 
