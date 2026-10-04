@@ -157,6 +157,17 @@ export const COLORS = {
   ecoFossil: '#ff8a66',
   ecoMoonBg: 'rgba(8, 14, 30, 0.82)',
 
+  // Time horizon — one color per way the session's time went, and the black hole's light
+  timeThinking: '#66ccff',
+  timeTools: '#ffbb44',
+  timeSubagents: '#cc88ff',
+  timePermission: '#ff6680',
+  timeWaiting: '#4a5570',
+  horizonLight: '#ffd9a0',
+  horizonHot: '#fff4e0',
+  horizonVoid: '#020208',
+  horizonActiveBg: 'rgba(255, 217, 160, 0.12)',
+
   // Canvas drawing — cost panel bar fills
   barFillMain: 'rgba(102, 204, 255, 0.15)',
   barFillSub: 'rgba(204, 136, 255, 0.15)',

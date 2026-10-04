@@ -5,6 +5,7 @@ export function useKeyboardShortcuts(actions: {
   toggleFilePanel: () => void
   toggleTranscript: () => void
   toggleTimeline: () => void
+  toggleHorizon: () => void
   toggleHexGrid: () => void
   toggleStats: () => void
   toggleCostOverlay: () => void
@@ -52,6 +53,10 @@ export function useKeyboardShortcuts(actions: {
         case 'c':
         case 'C':
           a.toggleTranscript()
+          break
+        case 'h':
+        case 'H':
+          a.toggleHorizon()
           break
         case 'g':
         case 'G':

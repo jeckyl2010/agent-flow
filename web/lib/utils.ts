@@ -10,6 +10,15 @@ export function formatTokens(tokens: number): string {
   return `${Math.floor(tokens / 1000)}k`
 }
 
+/** A count at a glance: `895`, `12.4k`, `62.3M`, `1.2B` */
+export function formatCount(n: number): string {
+  const units: Array<[number, string]> = [[1e9, 'B'], [1e6, 'M'], [1e3, 'k']]
+  for (const [size, unit] of units) {
+    if (n >= size) return `${+(n / size).toFixed(n >= size * 100 ? 0 : 1)}${unit}`
+  }
+  return String(Math.round(n))
+}
+
 /** Truncate a file path to the last N segments (e.g. '/a/b/c/d.ts' → 'b/c/d.ts') */
 export function truncatePath(path: string, segments = 3): string {
   return path.split('/').slice(-segments).join('/')

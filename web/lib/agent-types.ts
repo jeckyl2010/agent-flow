@@ -211,6 +211,9 @@ export interface Particle {
   label?: string        // what's flowing (e.g., "auth.ts 142 lines")
 }
 
+/** Claude Code's own plumbing, not the agent's work: a subagent handing its answer back */
+export const HIDDEN_TOOLS = new Set(['SubagentHandback'])
+
 export interface SimulationEvent {
   time: number
   type:
@@ -258,7 +261,10 @@ export const CARD = {
 
 export const Z = {
   info: 10,
+  /** The time horizon view: over the canvas, under the bars and panels */
+  horizon: 30,
   sidePanel: 40,
+  topBar: 45,
   controlBar: 50,
   chatPanel: 50,
   transcriptPanel: 60,
