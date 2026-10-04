@@ -90,6 +90,22 @@ export const BUBBLE_VISIBLE_S = 12
 // ─── Animation speed multipliers ─────────────────────────────────────────────
 // Multiplied by deltaTime in the animation loop
 
+/**
+ * The canvas draws at the display's full rate only while something is happening; settled, its
+ * ambient motion (drifting particles, the breathing grid) runs at a calm rate. Full-screen frames
+ * at 60 a second, bloom and all, were most of what an idle view cost the GPU.
+ */
+export const FRAME_RATE = {
+  /** How long after the last event, effect or pointer input it stays at full rate */
+  activeWindowMs: 4000,
+  /** Full rate: 60 frames a second, not the 120 a ProMotion display would call for */
+  active: 60,
+  /** The calm rate: drifting looks the same at 15 frames a second, at a quarter of the cost */
+  ambient: 15,
+  /** The time horizon: its gas and stars move smoothly at 30 */
+  horizon: 30,
+}
+
 export const ANIM_SPEED = {
   /** Agent fade-in (opacity per dt) */
   agentFadeIn: 3,

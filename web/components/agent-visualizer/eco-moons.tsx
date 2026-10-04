@@ -140,7 +140,9 @@ function Moon({ spec, range, index, footnote, layout }: {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="absolute inset-0" style={{ animation: `eco-bob ${5.5 + index * 0.7}s ${-index * 1.3}s ease-in-out infinite` }}>
+      {/* Still at rest: a moon animates when its value changes, never continuously. Endless motion
+          kept the GPU recompositing it every frame, the biggest cost of an idle view */}
+      <div className="absolute inset-0">
         {/* Progress toward the next 1–2–5 milestone */}
         <svg className="absolute pointer-events-none" width={RING_R * 2 + 4} height={RING_R * 2 + 4}
           style={{ left: SIZE / 2 - RING_R - 2, top: SIZE / 2 - RING_R - 2, transform: 'rotate(-90deg)' }}>
@@ -149,11 +151,6 @@ function Moon({ spec, range, index, footnote, layout }: {
             strokeLinecap="round" strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - progress)}
             style={{ filter: `drop-shadow(0 0 3px ${c})`, opacity: 0.85 }} />
         </svg>
-
-        {/* A satellite, slowly orbiting */}
-        <div className="absolute inset-0 pointer-events-none" style={{ animation: `eco-orbit ${14 + index * 3}s linear infinite${index % 2 ? ' reverse' : ''}` }}>
-          <div className="absolute rounded-full" style={{ width: 4, height: 4, left: SIZE / 2 - 2, top: -9, background: c, boxShadow: `0 0 6px ${c}` }} />
-        </div>
 
         {/* Milestone: shockwaves and sparks */}
         {burst > 0 && (
@@ -179,7 +176,6 @@ function Moon({ spec, range, index, footnote, layout }: {
             background: `radial-gradient(circle at 35% 30%, ${c}2e, ${COLORS.ecoMoonBg} 62%)`,
             border: `1px solid ${c}55`,
             boxShadow: `0 0 14px ${c}22, inset 0 0 10px ${c}14`,
-            backdropFilter: 'blur(10px)',
             animation: pulse ? 'eco-breathe 0.7s ease-out' : undefined,
           }}>
           {pulse > 0 && <div className="absolute inset-0 rounded-full pointer-events-none"

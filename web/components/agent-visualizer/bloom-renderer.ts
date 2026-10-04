@@ -4,6 +4,9 @@
  * and composites back with additive blending.
  */
 
+/** The bloom's blur, in quarter-resolution pixels */
+const BLUR_RADIUS = 5.4
+
 export class BloomRenderer {
   private bloomCanvas: HTMLCanvasElement
   private bloomCtx: CanvasRenderingContext2D
@@ -25,8 +28,8 @@ export class BloomRenderer {
   }
 
   resize(width: number, height: number): void {
-    // Bloom at half resolution for performance
-    const scale = 0.5
+    // A quarter resolution: a blurred image has no detail to lose, and it's a quarter the pixels
+    const scale = 0.25
     this.bloomCanvas.width = width * scale
     this.bloomCanvas.height = height * scale
     this.tempCanvas.width = width * scale
@@ -43,10 +46,10 @@ export class BloomRenderer {
     this.bloomCtx.clearRect(0, 0, w, h)
     this.bloomCtx.drawImage(sourceCanvas, 0, 0, w, h)
 
-    // Apply blur passes (box blur approximation of gaussian)
-    this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 8)
-    this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 6)
-    this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 4)
+    // One blur pass. The filter is already Gaussian, and Gaussians in sequence are one wider
+    // Gaussian: the three passes this replaces (8, 6 and 4 at half resolution) come to √(8² + 6² + 4²)
+    // ≈ 10.8, which at a quarter resolution is half that
+    this.boxBlur(this.bloomCtx, this.tempCtx, w, h, BLUR_RADIUS)
 
     // Composite bloom over the target with additive blending
     targetCtx.save()

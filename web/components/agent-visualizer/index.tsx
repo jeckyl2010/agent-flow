@@ -302,6 +302,7 @@ export function AgentVisualizer() {
         onDiscoveryClick={selection.handleDiscoveryClick}
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
+        paused={showHorizon}
       />
 
       {/* Environmental footprint: down the top right, beside any open right-hand panel; flying

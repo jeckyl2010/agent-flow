@@ -2,6 +2,8 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Z, type Agent, type SimulationEvent } from '@/lib/agent-types'
+import { FRAME_RATE } from '@/lib/canvas-constants'
+import { frameLimiter } from '@/lib/frame-limiter'
 import { COLORS } from '@/lib/colors'
 import { formatCount } from '@/lib/utils'
 import {
@@ -61,7 +63,10 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
     const scene = createScene(reduced)
     sceneRef.current = scene
     let raf = 0
+    const limit = frameLimiter()
     const frame = (now: number) => {
+      raf = requestAnimationFrame(frame)
+      if (!limit(now, FRAME_RATE.horizon)) return
       const dpr = window.devicePixelRatio || 1
       const { clientWidth: w, clientHeight: h } = canvas
       if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
@@ -70,7 +75,6 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       scene.draw(ctx, inputRef.current, now, w, h)
-      raf = requestAnimationFrame(frame)
     }
     raf = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(raf)
