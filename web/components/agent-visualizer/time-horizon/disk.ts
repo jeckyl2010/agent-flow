@@ -4,6 +4,7 @@
  * the time labels, and the prompt cache in orbit. Hit tests for hovering it and its hexagons.
  */
 import { COLORS } from '@/lib/colors'
+import { getGlowSprite } from '../canvas/render-cache'
 import { formatDuration, type TimeHorizon, type TimeKind } from '@/lib/time-horizon'
 import {
   Batch, HOLE_R, KIND_COLOR, MATTER, R_IN, R_OUT, SAMPLES, U_NOW, hex, segment, spiral,
@@ -172,12 +173,20 @@ export function createDisk(v: View) {
       hexPath(ctx, x, y, size, spin)
       ctx.fillStyle = COLORS.void + 'd0'
       ctx.fill()
+      // The glow: the edge drawn wide and faint under the line. A canvas shadow blurs it again every
+      // frame, the most of the horizon's cost in Safari
+      const glow = lit || running ? 1 : intensity * 0.4
+      if (glow > 0.05) {
+        ctx.strokeStyle = COLORS.holoBright + hex(0.1 * glow)
+        ctx.lineWidth = 9 * glow
+        ctx.stroke()
+        ctx.strokeStyle = COLORS.holoBright + hex(0.2 * glow)
+        ctx.lineWidth = 4.5 * glow
+        ctx.stroke()
+      }
       ctx.strokeStyle = lit ? COLORS.holoHot : COLORS.holoBright
       ctx.lineWidth = lit ? 2 : 1.4
-      ctx.shadowColor = COLORS.holoBright
-      ctx.shadowBlur = lit || running ? 10 : 4 * intensity
       ctx.stroke()
-      ctx.shadowBlur = 0
       // The work inside: a core that fills with it
       hexPath(ctx, x, y, size * 0.45 * intensity, -spin * 1.5)
       ctx.fillStyle = COLORS.holoBright + hex(0.35 + 0.5 * intensity)
@@ -220,12 +229,10 @@ export function createDisk(v: View) {
       ctx.lineWidth = 1.5
       ctx.stroke()
     }
+    glowAt(ctx, x, y, COLORS.horizonHot, 7 * v.scale + 14)
     hexPath(ctx, x, y, 7 * v.scale)
     ctx.fillStyle = COLORS.horizonHot
-    ctx.shadowColor = COLORS.horizonHot
-    ctx.shadowBlur = 14
     ctx.fill()
-    ctx.shadowBlur = 0
     ctx.font = `bold ${Math.max(9, 10 * v.scale)}px monospace`
     ctx.textAlign = 'left'
     ctx.fillStyle = COLORS.horizonHot
@@ -244,11 +251,9 @@ export function createDisk(v: View) {
       const end = spiral(1)
       const [ex, ey] = v.project(end.r, end.theta)
       ctx.textAlign = 'left'
+      glowAt(ctx, ex, ey, COLORS.timePermission, 3 * v.scale + 8)
       ctx.fillStyle = COLORS.timePermission
-      ctx.shadowColor = COLORS.timePermission
-      ctx.shadowBlur = 8
       ctx.beginPath(); ctx.arc(ex, ey, 3 * v.scale, 0, Math.PI * 2); ctx.fill()
-      ctx.shadowBlur = 0
       ctx.fillText(`T+${span(c.eta)} · CONTEXT FULL`, ex + 10 * v.scale, ey - 8 * v.scale)
     } else {
       const fade = spiral(U_NOW + 0.12)
@@ -291,12 +296,11 @@ export function createDisk(v: View) {
     ctx.globalCompositeOperation = 'source-over'
     const [px, py] = trail.length > 1 ? trail[trail.length - 2] : [x - 1, y]
     const heading = Math.atan2(y - py, x - px)
+    glowAt(ctx, x, y, color, 8 * v.scale + 12)
     ctx.save()
     ctx.translate(x, y)
     ctx.rotate(heading)
     ctx.fillStyle = color
-    ctx.shadowColor = color
-    ctx.shadowBlur = 12
     ctx.beginPath()
     ctx.moveTo(8 * v.scale, 0); ctx.lineTo(-5 * v.scale, -4.5 * v.scale); ctx.lineTo(-2 * v.scale, 0); ctx.lineTo(-5 * v.scale, 4.5 * v.scale)
     ctx.closePath(); ctx.fill()
@@ -340,4 +344,10 @@ export function createDisk(v: View) {
   }
 
   return { drawDisk, drawFuture, drawMatter, drawMarkers, drawNow, drawCache, hexAt, hoverHex, hit }
+}
+
+/** A soft glow around a point, from a cached sprite: in place of a canvas shadow, blurred every frame */
+function glowAt(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, radius: number): void {
+  const sprite = getGlowSprite(color, radius, '66', '00')
+  ctx.drawImage(sprite, x - sprite.width / 2, y - sprite.height / 2)
 }

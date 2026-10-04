@@ -13,7 +13,7 @@ const DOWNSCALE = 0.125
  * Whether this browser's canvas applies `filter`. Safari accepts the property and ignores it: its
  * "blur" drew a sharp copy of the whole canvas over itself, brightening it, every frame.
  */
-function canvasFilterBlurs(): boolean {
+export function canvasFilterBlurs(): boolean {
   const c = document.createElement('canvas')
   c.width = c.height = 32
   const ctx = c.getContext('2d')

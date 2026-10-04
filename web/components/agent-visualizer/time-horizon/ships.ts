@@ -3,6 +3,7 @@
  * work, sparking with each request and landing where they returned; and their lanes in the past.
  */
 import { runKey, type TimeHorizon } from '@/lib/time-horizon'
+import { getGlowSprite } from '../canvas/render-cache'
 import { DISK_COS, DISK_SIN, SAMPLES, U_NOW, hex, segment, shipColor, spiral, type View } from './shared'
 
 export function createShips(v: View) {
@@ -125,12 +126,12 @@ export function createShips(v: View) {
 
       const size = (3 + Math.log2(1 + run.outputTokens) / 3.2) * v.scale
       const [px, py] = f.trail.length > 1 ? f.trail[f.trail.length - 2] : [pos[0] - 1, pos[1]]
+      const glow = getGlowSprite(color, size * 1.6 + 14, '66', '00')
+      ctx.drawImage(glow, pos[0] - glow.width / 2, pos[1] - glow.height / 2)
       ctx.save()
       ctx.translate(pos[0], pos[1])
       ctx.rotate(Math.atan2(pos[1] - py, pos[0] - px))
       ctx.fillStyle = color
-      ctx.shadowColor = color
-      ctx.shadowBlur = 14
       ctx.beginPath()
       ctx.moveTo(size * 1.6, 0); ctx.lineTo(-size, -size); ctx.lineTo(-size * 0.4, 0); ctx.lineTo(-size, size)
       ctx.closePath(); ctx.fill()

@@ -72,6 +72,9 @@ function milestoneProgress(v: number): number {
   return Math.log(v / lo) / Math.log(hi / lo)
 }
 
+/** How often a count-up shows a new figure: each repaints the moon's glowing text and ring */
+const TWEEN_STEP_MS = 50
+
 /** Eases toward the target; snaps when it falls (seeking back, a new session) */
 function useTweened(target: number, ms = 900): number {
   const [value, setValue] = useState(target)
@@ -85,10 +88,11 @@ function useTweened(target: number, ms = 900): number {
     const from = current.current
     const start = performance.now()
     let raf = 0
+    let shown = -Infinity
     const step = (now: number) => {
       const k = Math.min(1, (now - start) / ms)
       current.current = from + (target - from) * (1 - (1 - k) ** 3)
-      setValue(current.current)
+      if (k === 1 || now - shown >= TWEEN_STEP_MS) { shown = now; setValue(current.current) }
       if (k < 1) raf = requestAnimationFrame(step)
     }
     raf = requestAnimationFrame(step)
@@ -145,11 +149,14 @@ function Moon({ spec, range, index, footnote, layout }: {
       <div className="absolute inset-0">
         {/* Progress toward the next 1–2–5 milestone */}
         <svg className="absolute pointer-events-none" width={RING_R * 2 + 4} height={RING_R * 2 + 4}
-          style={{ left: SIZE / 2 - RING_R - 2, top: SIZE / 2 - RING_R - 2, transform: 'rotate(-90deg)' }}>
+          style={{ left: SIZE / 2 - RING_R - 2, top: SIZE / 2 - RING_R - 2, transform: 'rotate(-90deg)', overflow: 'visible' }}>
           <circle cx={RING_R + 2} cy={RING_R + 2} r={RING_R} fill="none" stroke={c + '18'} strokeWidth={1.5} />
+          {/* Its glow, a wide faint stroke under it: a drop-shadow filter is redrawn each time it moves */}
+          <circle cx={RING_R + 2} cy={RING_R + 2} r={RING_R} fill="none" stroke={c + '30'} strokeWidth={5}
+            strokeLinecap="round" strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - progress)} />
           <circle cx={RING_R + 2} cy={RING_R + 2} r={RING_R} fill="none" stroke={c} strokeWidth={1.5}
             strokeLinecap="round" strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - progress)}
-            style={{ filter: `drop-shadow(0 0 3px ${c})`, opacity: 0.85 }} />
+            style={{ opacity: 0.85 }} />
         </svg>
 
         {/* Milestone: shockwaves and sparks */}
