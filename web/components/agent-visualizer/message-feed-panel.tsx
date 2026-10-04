@@ -54,13 +54,8 @@ export function MessageFeedPanel({
     let latest: (ConversationMessage & { agentId: string }) | null = null
     for (const [agentId, msgs] of conversations) {
       if (!currentAgents.has(agentId)) continue
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (!TEXT_TYPES.has(msgs[i].type)) continue
-        if (!latest || msgs[i].timestamp > latest.timestamp) {
-          latest = { ...msgs[i], agentId }
-        }
-        break
-      }
+      const msg = msgs.findLast(m => TEXT_TYPES.has(m.type))
+      if (msg && (!latest || msg.timestamp > latest.timestamp)) latest = { ...msg, agentId }
     }
     return latest
   // eslint-disable-next-line react-hooks/exhaustive-deps

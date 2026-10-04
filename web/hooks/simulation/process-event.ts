@@ -40,7 +40,7 @@ export function pushTimelineBlock(
   block: Pick<TimelineBlock, 'type' | 'label' | 'color'> & { endTime?: number },
   ctx: ProcessEventContext,
 ): void {
-  const lastBlock = entry.blocks[entry.blocks.length - 1]
+  const lastBlock = entry.blocks.at(-1)
   if (lastBlock && !lastBlock.endTime) lastBlock.endTime = currentTime
   entry.blocks.push({
     id: `block-${ctx.blockIdCounter.current++}`,

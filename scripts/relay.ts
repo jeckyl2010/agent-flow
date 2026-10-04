@@ -484,7 +484,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       }
 
       // Replay buffered events for the most recent active session
-      const sorted = [...sessionList].sort((a, b) => {
+      const sorted = sessionList.toSorted((a, b) => {
         const aActive = a.status === 'active' ? 1 : 0
         const bActive = b.status === 'active' ? 1 : 0
         if (aActive !== bActive) return bActive - aActive

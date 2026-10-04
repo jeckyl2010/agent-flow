@@ -221,7 +221,7 @@ export function formatImpact(kind: ImpactKind, value: number): { value: string; 
     pe: [[1, 'MJ'], [1e-3, 'kJ'], [1e-6, 'J']],
   }
   const list = scales[kind]
-  const [factor, unit] = list.find(([f]) => value >= f) ?? list[list.length - 1]
+  const [factor, unit] = list.find(([f]) => value >= f) ?? list.at(-1)!
   return { value: String(Number((value / factor).toPrecision(3))), unit }
 }
 

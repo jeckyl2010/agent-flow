@@ -47,7 +47,7 @@ export function handleMessage(
       const bubbleText = bubbleRole === 'thinking' ? content.slice(0, LABEL_LEN_BUBBLE) + (content.length > LABEL_LEN_BUBBLE ? '...' : '') : content
       const streamed = streamId ? msgAgent.messageBubbles.findIndex(b => b.streamId === streamId) : -1
       // Dedup: skip if last bubble has the same text (dual event source race)
-      const lastBubble = msgAgent.messageBubbles[msgAgent.messageBubbles.length - 1]
+      const lastBubble = msgAgent.messageBubbles.at(-1)
       if (streamed !== -1) {
         const bubbles = [...msgAgent.messageBubbles]
         const old = bubbles[streamed]

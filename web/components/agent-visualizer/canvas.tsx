@@ -196,7 +196,7 @@ export function AgentCanvas({
   const isActive = useCallback((timestamp: number): boolean => {
     const s = simulationRef.current
     return activityRef.current.active(timestamp, {
-      lastEvent: s.eventLog[s.eventLog.length - 1],
+      lastEvent: s.eventLog.at(-1),
       particles: s.particles.length,
       effects: effectsRef.current.length,
       dragging: drawPropsRef.current.isDragging,
@@ -344,7 +344,7 @@ export function AgentCanvas({
           perf.fps = perf.frames
           perf.frames = 0
           perf.lastFpsUpdate = frameEnd
-          const sorted = [...perf.frameTimes].sort((a, b) => a - b)
+          const sorted = perf.frameTimes.toSorted((a, b) => a - b)
           perf.p95 = sorted[Math.floor(sorted.length * 0.95)] || 0
         }
         const po = PERF_OVERLAY
