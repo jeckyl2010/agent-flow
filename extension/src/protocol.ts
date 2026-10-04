@@ -11,6 +11,7 @@ export type AgentEventType =
   | 'agent_spawn'
   | 'agent_complete'
   | 'agent_idle'
+  | 'agent_status'
   | 'message'
   | 'context_update'
   | 'model_detected'
@@ -129,6 +130,7 @@ export function emitSubagentSpawn(
   child: string,
   task: string,
   sessionId?: string,
+  isTeammate = false,
 ): void {
   emitter.emit({
     time: emitter.elapsed(sessionId),
@@ -138,7 +140,7 @@ export function emitSubagentSpawn(
   emitter.emit({
     time: emitter.elapsed(sessionId),
     type: 'agent_spawn',
-    payload: { name: child, parent, task },
+    payload: { name: child, parent, task, ...(isTeammate ? { isTeammate: true } : {}) },
   }, sessionId)
 }
 

@@ -20,6 +20,7 @@ export function handleAgentSpawn(
   const task = typeof payload.task === 'string' ? payload.task : undefined
   const model = typeof payload.model === 'string' ? payload.model : undefined
   const runtime = payload.runtime === 'codex' ? 'codex' as const : undefined
+  const isTeammate = payload.isTeammate === true ? true : undefined
 
   // If the agent already exists (e.g. session resuming after inactivity),
   // reactivate it instead of replacing — preserves accumulated stats.
@@ -81,6 +82,7 @@ export function handleAgentSpawn(
     toolCalls: 0, timeAlive: 0,
     x, y, vx: 0, vy: 0,
     pinned: false, isMain,
+    ...(isTeammate ? { isTeammate } : {}),
     ...(runtime ? { runtime } : {}),
     ...(model ? { model } : {}),
     task,
@@ -189,6 +191,24 @@ export function handleAgentIdle(
   const idleAgent = state.agents.get(idleName)
   if (idleAgent && (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
     state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined, pendingPermission: undefined })
+  }
+}
+
+/** A subagent's or teammate's state as the engine reports it (the bridge mod, Claude Code
+ *  2.1.289+): idle between messages, or waiting on its own background work */
+export function handleAgentStatus(
+  payload: Record<string, unknown>,
+  state: MutableEventState,
+): void {
+  const name = asString(payload.name)
+  const agent = state.agents.get(name)
+  if (!agent || agent.state === 'complete' || agent.state === 'error') return
+  const status = asString(payload.status)
+  if (status === 'idle' || status === 'waiting') {
+    if (agent.state === 'waiting_permission') return // the dialog is the more specific
+    state.agents.set(name, { ...agent, state: status === 'idle' ? 'idle' : 'paused', currentTool: undefined })
+  } else if (status === 'running' && (agent.state === 'idle' || agent.state === 'paused')) {
+    state.agents.set(name, { ...agent, state: 'thinking' })
   }
 }
 

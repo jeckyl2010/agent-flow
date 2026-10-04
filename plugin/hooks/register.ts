@@ -17,6 +17,11 @@ import type { EngineInterface, Register } from 'claude-code'
 type Payload = Record<string, unknown> & { hook_event_name: string }
 type Target = { port: number; workspace: string }
 
+/** How often the agents' states are read while any is out */
+const STATUS_INTERVAL_MS = 1_000
+/** An agent's status that ends it: it is reported stopped */
+const ENDED = new Set(['completed', 'failed', 'killed'])
+
 /** How long a discovery scan is trusted before the folder is read again */
 const DISCOVERY_TTL_MS = 5_000
 /** Payloads kept while no Agent Flow is running; the oldest are dropped past this */
@@ -40,6 +45,11 @@ let scannedAt = -Infinity
 const toolAgents = new Map<string, string>()
 /** agentId → its type, as the command hooks' `agent_type` */
 const agentTypes = new Map<string, string>()
+/** Teammates (agent teams), by agentId: they idle between messages, so a turn's end isn't theirs */
+const teammates = new Set<string>()
+/** agentId → the status last sent for it, from `$.agent.list()` */
+const statuses = new Map<string, string>()
+let statusTimer: { cancel(): void } | undefined
 /** tool_use_id → the `ask` verdict its permission check returned, until the call ends */
 const asks = new Map<string, { tool: string; agentId?: string; reason?: string; rule?: string }>()
 /** What /agent-flow reports */
@@ -74,6 +84,10 @@ export const register: Register = on => {
     toolAgents.clear()
     agentTypes.clear()
     asks.clear()
+    teammates.clear()
+    statuses.clear()
+    statusTimer?.cancel()
+    statusTimer = undefined
     return next(e)
   })
 
@@ -136,24 +150,34 @@ export const register: Register = on => {
   on('agent.spawn', async ($, e, next) => {
     const spawned = await next(e)
     if (spawned.agentId) {
+      // Since 2.1.289 a teammate's spawn comes here too, with its name in the team; older engines
+      // leave these out
+      const spawn = e as typeof e & { isTeammate?: boolean; name?: string; parentAgentId?: string }
       agentTypes.set(spawned.agentId, e.subagentType)
+      if (spawn.isTeammate) teammates.add(spawned.agentId)
       send($, {
         hook_event_name: 'SubagentStart',
         agent_id: spawned.agentId, agent_type: e.subagentType,
         tool_use_id: e.tool_use_id, description: e.description, model: spawned.model,
-        parent_agent_id: toolAgents.get(e.tool_use_id), // absent when the main loop started it
+        // absent when the main loop started it
+        parent_agent_id: spawn.parentAgentId ?? toolAgents.get(e.tool_use_id),
+        ...(spawn.isTeammate ? { is_teammate: true, agent_name: spawn.name } : {}),
       })
+      watchStatuses($)
     }
     return spawned
   })
 
   on('turn.complete', async ($, e, next) => {
+    // A teammate's turn ends each time it answers; it ends when its status says so
+    if (e.agentId && teammates.has(e.agentId)) return next(e)
     if (e.agentId) {
       send($, {
         hook_event_name: 'SubagentStop', ...agentFields(e.agentId),
         reason: e.reason, duration_ms: e.durationMs,
       })
       agentTypes.delete(e.agentId)
+      statuses.delete(e.agentId)
     } else {
       send($, { hook_event_name: 'Stop', reason: e.reason, duration_ms: e.durationMs })
     }
@@ -203,6 +227,40 @@ export const register: Register = on => {
       finish() // an interrupted step still shows what it said
     }
   })
+}
+
+/** Reads the agents' states once a second while any is out, and sends each change: `idle` and
+ *  `waiting` (since 2.1.289) the engine's own, where the transcript could only guess */
+function watchStatuses($: EngineInterface): void {
+  if (statusTimer) return
+  statusTimer = $.clock.every(STATUS_INTERVAL_MS, () => { void readStatuses($) })
+}
+
+async function readStatuses($: EngineInterface): Promise<void> {
+  const agents = await $.agent.list().catch(() => undefined)
+  if (!agents) return
+  const listed = new Set<string>()
+  for (const a of agents) {
+    if (!agentTypes.has(a.id)) continue // spawned before the bridge saw it, or not by a model
+    listed.add(a.id)
+    if (statuses.get(a.id) === a.status) continue
+    statuses.set(a.id, a.status)
+    send($, { hook_event_name: 'AgentStatus', ...agentFields(a.id), status: a.status })
+    if (ENDED.has(a.status) && teammates.has(a.id)) endTeammate($, a.id, a.status)
+  }
+  // A teammate gone from the list has ended too
+  for (const id of teammates) if (!listed.has(id)) endTeammate($, id, 'completed')
+  if (agentTypes.size === 0) {
+    statusTimer?.cancel()
+    statusTimer = undefined
+  }
+}
+
+function endTeammate($: EngineInterface, agentId: string, reason: string): void {
+  send($, { hook_event_name: 'SubagentStop', ...agentFields(agentId), reason })
+  teammates.delete(agentId)
+  agentTypes.delete(agentId)
+  statuses.delete(agentId)
 }
 
 type OutputBlock = { role: 'assistant' | 'thinking'; text: string; sent: string; sentAt: number }

@@ -18,6 +18,7 @@ interface AgentDetailCardProps {
     timeAlive: number
     currentTool?: string
     pendingPermission?: string
+    isTeammate?: boolean
   }
   onClose: () => void
 }
@@ -78,6 +79,7 @@ export function AgentDetailCard({
         <span>{agent.toolCalls} tools</span>
         <span>{agent.timeAlive.toFixed(1)}s alive</span>
         <span className="capitalize" style={{ color: stateColor }}>{agent.state}</span>
+        {agent.isTeammate && <span style={{ color: COLORS.textMuted }}>teammate</span>}
       </div>
 
       {/* Current tool */}

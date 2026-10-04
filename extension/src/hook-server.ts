@@ -67,6 +67,11 @@ interface HookPayload {
   // SubagentStart (mod only): the task as the Agent tool named it, and the agent whose call started it
   description?: string
   parent_agent_id?: string
+  /** A teammate (agent teams), and its name in the team */
+  is_teammate?: boolean
+  agent_name?: string
+  // AgentStatus (mod only): an agent's state as `$.agent.list()` gives it: running, idle, waiting...
+  status?: string
   // Generic
   [key: string]: unknown
 }
@@ -239,6 +244,9 @@ export class HookServer implements vscode.Disposable {
       case 'ModelOutput':
         this.handleModelOutput(payload)
         break
+      case 'AgentStatus':
+        this.handleAgentStatus(payload)
+        break
     }
   }
 
@@ -375,14 +383,16 @@ export class HookServer implements vscode.Disposable {
     const agentId = payload.agent_id
     if (!agentId) return
     const state = this.getOrCreateSession(payload.session_id)
-    const childName = resolveSubagentChildName({ description: payload.description, subagent_type: payload.agent_type })
+    // A teammate goes by its name in the team: what the others address it by
+    const childName = (payload.is_teammate && payload.agent_name)
+      || resolveSubagentChildName({ description: payload.description, subagent_type: payload.agent_type })
     const parentName = (payload.parent_agent_id && state.agentNames.get(payload.parent_agent_id)) || ORCHESTRATOR_NAME
     state.agentNames.set(agentId, childName)
     state.agentParents.set(agentId, parentName)
     emitSubagentSpawn({
       emit: (event, sessionId) => this.emit(event, sessionId),
       elapsed: sessionId => this.elapsedSeconds(sessionId),
-    }, parentName, childName, payload.description || childName, payload.session_id)
+    }, parentName, childName, payload.description || childName, payload.session_id, payload.is_teammate === true)
     if (payload.model) {
       state.models.set(childName, payload.model)
       this.emit({
@@ -391,6 +401,18 @@ export class HookServer implements vscode.Disposable {
         payload: { agent: childName, model: payload.model },
       }, payload.session_id)
     }
+  }
+
+  /** A subagent's or teammate's state as the engine has it: waiting on its work or idle between
+   *  messages, where the transcript could only guess. Running is shown by what it does */
+  private handleAgentStatus(payload: HookPayload): void {
+    const name = payload.agent_id && this.sessionState.get(payload.session_id)?.agentNames.get(payload.agent_id)
+    if (!name || !payload.status) return
+    this.emit({
+      time: this.elapsedSeconds(payload.session_id),
+      type: 'agent_status',
+      payload: { name, status: payload.status },
+    }, payload.session_id)
   }
 
   private handleSubagentStop(payload: HookPayload): void {
