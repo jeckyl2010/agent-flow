@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { WatchedSession } from '../src/protocol'
-import { recordTranscriptUsage, modelStepPayload } from '../src/transcript-usage'
+import { recordTranscriptUsage, modelStepPayload, oneHourWrites } from '../src/transcript-usage'
 
 function session(): WatchedSession {
   return { usageSeenIds: new Set(), usageTotals: new Map() } as unknown as WatchedSession
@@ -21,7 +21,10 @@ function assistant(id: string, output: number, model = 'claude-opus-5-5', block 
     message: {
       id, model, role: 'assistant', stop_reason: 'end_turn',
       content: [{ type: block }],
-      usage: { input_tokens: 2, output_tokens: output, cache_read_input_tokens: 100, cache_creation_input_tokens: 10, service_tier: 'standard' },
+      usage: {
+        input_tokens: 2, output_tokens: output, cache_read_input_tokens: 100, cache_creation_input_tokens: 10,
+        cache_creation: { ephemeral_5m_input_tokens: 4, ephemeral_1h_input_tokens: 6 }, service_tier: 'standard',
+      },
     },
   }
 }
@@ -33,7 +36,7 @@ describe('recordTranscriptUsage', () => {
     const again = recordTranscriptUsage(assistant('msg_1', 657, undefined, 'tool_use'), 'orchestrator', s)
     assert.deepEqual(first, {
       model: 'claude-opus-5-5',
-      usage: { input_tokens: 2, output_tokens: 657, cache_read_input_tokens: 100, cache_creation_input_tokens: 10 },
+      usage: { input_tokens: 2, output_tokens: 657, cache_read_input_tokens: 100, cache_creation_input_tokens: 10, cache_creation_1h_input_tokens: 6 },
       stopReason: 'end_turn',
       effort: 'medium',
     })
@@ -75,9 +78,17 @@ describe('modelStepPayload', () => {
     assert.deepEqual(payload.totals, {
       steps: 2,
       byModel: [
-        { model: 'claude-opus-5-5', input_tokens: 2, output_tokens: 100, cache_read_input_tokens: 100, cache_creation_input_tokens: 10 },
-        { model: 'claude-haiku-4-5', input_tokens: 2, output_tokens: 40, cache_read_input_tokens: 100, cache_creation_input_tokens: 10 },
+        { model: 'claude-opus-5-5', input_tokens: 2, output_tokens: 100, cache_read_input_tokens: 100, cache_creation_input_tokens: 10, cache_creation_1h_input_tokens: 6 },
+        { model: 'claude-haiku-4-5', input_tokens: 2, output_tokens: 40, cache_read_input_tokens: 100, cache_creation_input_tokens: 10, cache_creation_1h_input_tokens: 6 },
       ],
     })
+  })
+})
+
+describe('oneHourWrites', () => {
+  it('reads the API\'s TTL breakdown, or a flat count', () => {
+    assert.equal(oneHourWrites({ cache_creation: { ephemeral_5m_input_tokens: 3, ephemeral_1h_input_tokens: 9 } }), 9)
+    assert.equal(oneHourWrites({ cache_creation_1h_input_tokens: 5 }), 5)
+    assert.equal(oneHourWrites({ cache_creation_input_tokens: 12 }), 0)
   })
 })

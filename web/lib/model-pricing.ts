@@ -20,10 +20,15 @@ export interface StepUsage {
   output_tokens: number
   cache_read_input_tokens: number
   cache_creation_input_tokens: number
+  /** The part of cache_creation_input_tokens written with the 1-hour TTL; absent when the
+   *  source doesn't break writes down by TTL, which then count as 5-minute ones */
+  cache_creation_1h_input_tokens?: number
 }
 
 /** A cache write with the default 5-minute TTL costs this multiple of input */
 export const CACHE_WRITE_MULTIPLIER = 1.25
+/** A cache write with the 1-hour TTL costs this multiple of input */
+export const CACHE_WRITE_1H_MULTIPLIER = 2
 
 const MODEL_PRICES: ReadonlyArray<{ pattern: RegExp; price: ModelPrice }> = [
   { pattern: /(fable|mythos)-5-1/, price: { input: 10, output: 50, cacheRead: 0.25 } },
@@ -58,11 +63,13 @@ export function blendedRate(model?: string): number {
 /** What one model request cost, in $ */
 export function stepCost(usage: StepUsage, model?: string): number {
   const p = modelPrice(model)
+  const oneHour = Math.min(usage.cache_creation_1h_input_tokens ?? 0, usage.cache_creation_input_tokens)
   return (
     usage.input_tokens * p.input
     + usage.output_tokens * p.output
     + usage.cache_read_input_tokens * p.cacheRead
-    + usage.cache_creation_input_tokens * p.input * CACHE_WRITE_MULTIPLIER
+    + (usage.cache_creation_input_tokens - oneHour) * p.input * CACHE_WRITE_MULTIPLIER
+    + oneHour * p.input * CACHE_WRITE_1H_MULTIPLIER
   ) / 1_000_000
 }
 
