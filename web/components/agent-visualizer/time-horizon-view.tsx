@@ -440,7 +440,10 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
                   </span>
                 </div>
                 <div className="mt-1 h-[3px] rounded-full" style={{ background: COLORS.holoBg05 }}>
-                  <div className="h-full rounded-full" style={{ width: `${share * 100}%`, background: color, transition: 'width 0.8s ease' }} />
+                  {/* No transition: the share changes every second, and easing it kept the panel
+                      animating most of the time, its glass blur redone each frame (in Safari, a
+                      fifth of the GPU) */}
+                  <div className="h-full rounded-full" style={{ width: `${share * 100}%`, background: color }} />
                 </div>
               </div>
             )

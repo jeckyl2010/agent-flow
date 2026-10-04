@@ -113,8 +113,9 @@ function LiveControlBar({
       <div className="glass-card px-5 py-3 flex items-center gap-3">
         {/* LIVE badge */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Blinks rather than fades: a fade re-run every pulse kept the glass bar animating */}
           <span
-            className="w-2 h-2 rounded-full transition-opacity duration-500"
+            className="w-2 h-2 rounded-full"
             style={{
               background: COLORS.liveDot,
               boxShadow: pulseOn ? `0 0 8px ${COLORS.liveDot}, 0 0 16px rgba(255,68,68,0.3)` : `0 0 4px ${COLORS.liveDot}80`,
@@ -237,8 +238,9 @@ function ReviewControlBar({
             style={{ height: isScrubbing ? 8 : 4, background: COLORS.glassBorder }}
           >
             {/* Progress fill */}
+            {/* No transition: the playhead moves every second, and easing each step kept it animating */}
             <div
-              className="h-full rounded-full transition-[width]"
+              className="h-full rounded-full"
               style={{
                 width: `${progress * 100}%`,
                 background: COLORS.scrubberFill,
