@@ -8,7 +8,7 @@ import {
   type ImpactKind, type Range, type SessionImpacts,
 } from '@/lib/eco-impact'
 
-const SIZE = 54
+const SIZE = 64
 const RING_R = SIZE / 2 + 5
 const RING_C = 2 * Math.PI * RING_R
 
@@ -20,7 +20,7 @@ interface MoonSpec {
   about: string
 }
 
-const iconProps = { width: 11, height: 11, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' } as const
+const iconProps = { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' } as const
 
 const MOONS: readonly MoonSpec[] = [
   {
@@ -181,10 +181,10 @@ function Moon({ spec, range, index, footnote, layout }: {
           {pulse > 0 && <div className="absolute inset-0 rounded-full pointer-events-none"
             style={{ boxShadow: `0 0 22px ${c}, inset 0 0 14px ${c}88`, animation: 'eco-flash 0.9s ease-out both' }} />}
           <span style={{ color: c, opacity: 0.8, lineHeight: 1 }}>{spec.icon}</span>
-          <span className="text-[12px] font-semibold tabular-nums" style={{ color: COLORS.holoHot, lineHeight: 1.25, textShadow: `0 0 6px ${c}88` }}>
+          <span className="text-[14px] font-semibold tabular-nums" style={{ color: COLORS.holoHot, lineHeight: 1.25, textShadow: `0 0 6px ${c}88` }}>
             {value}
           </span>
-          <span className="text-[7.5px]" style={{ color: c, opacity: 0.85, lineHeight: 1 }}>{unit}</span>
+          <span className="text-[8.5px]" style={{ color: c, opacity: 0.85, lineHeight: 1 }}>{unit}</span>
         </div>
       </div>
 
@@ -228,8 +228,8 @@ function Moon({ spec, range, index, footnote, layout }: {
   )
 }
 
-const COLUMN_GAP = 16
-const ROW_GAP = 26
+/** The space between moons, the same in the column and the row */
+const GAP = 26
 /** The time horizon's side panel: the row centres over the black hole beside it */
 const HORIZON_PANEL = 330
 /** The column's place: under the top bar, at the right edge */
@@ -266,13 +266,13 @@ export const EcoMoons = memo(function EcoMoons({ impacts, layout, rightInset = 0
 
   const width = viewport[0]
   const n = MOONS.length
-  const rowLeft = (width - HORIZON_PANEL) / 2 - (n * SIZE + (n - 1) * ROW_GAP) / 2
+  const rowLeft = (width - HORIZON_PANEL) / 2 - (n * SIZE + (n - 1) * GAP) / 2
 
   return (
     <div className="absolute inset-0 pointer-events-none" style={{ zIndex: layout === 'row' ? Z.horizon + 1 : Z.info }}>
       {MOONS.map((spec, i) => {
-        const x = layout === 'column' ? width - COLUMN_RIGHT - SIZE - rightInset : rowLeft + i * (SIZE + ROW_GAP)
-        const y = layout === 'column' ? COLUMN_TOP + i * (SIZE + COLUMN_GAP) : 56
+        const x = layout === 'column' ? width - COLUMN_RIGHT - SIZE - rightInset : rowLeft + i * (SIZE + GAP)
+        const y = layout === 'column' ? COLUMN_TOP + i * (SIZE + GAP) : 56
         return (
           <div key={spec.kind} className="eco-flight absolute pointer-events-auto"
             style={{ left: 0, top: 0, transform: `translate(${x}px, ${y}px)`, transition: `transform 0.9s cubic-bezier(.65,0,.35,1) ${i * 0.07}s` }}>
