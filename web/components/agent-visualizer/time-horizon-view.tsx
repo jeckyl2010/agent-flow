@@ -4,10 +4,13 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Z, type Agent, type SimulationEvent } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatCount } from '@/lib/utils'
-import { timeHorizon, formatDuration, longest, predictConsumption, TIME_KINDS, type Consumption, type TimeHorizon, type TimeKind } from '@/lib/time-horizon'
+import {
+  timeHorizon, formatDuration, longest, predictConsumption, parallelism, TIME_KINDS,
+  type Consumption, type TimeHorizon, type TimeKind,
+} from '@/lib/time-horizon'
 import { sessionCosts } from '@/lib/session-costs'
 import { sessionImpacts, midpoint, formatImpact } from '@/lib/eco-impact'
-import { createScene, KIND_COLOR, type Hover, type Scene, type SceneInput } from './time-horizon-scene'
+import { createScene, shipColor, KIND_COLOR, type Hover, type Scene, type SceneInput } from './time-horizon-scene'
 
 const KIND_STYLE: Record<TimeKind, { label: string; about: string }> = {
   thinking: { label: 'Thinking', about: 'The model reasoning and writing' },
@@ -30,9 +33,12 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
   const [overHex, setOverHex] = useState(false)
   /** The prompt whose card is open: its turn, and where its hexagon is */
   const [promptCard, setPromptCard] = useState<{ turn: number; x: number; y: number } | undefined>()
+  const [overShip, setOverShip] = useState(false)
+  /** The subagent whose card is open, and where it was clicked */
+  const [shipCard, setShipCard] = useState<{ sub: number; x: number; y: number } | undefined>()
 
   // Escape closes a card before it closes the view
-  const cardOpen = !!insightsAt || !!promptCard
+  const cardOpen = !!insightsAt || !!promptCard || !!shipCard
   useEffect(() => {
     if (!cardOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -40,6 +46,7 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
       e.stopPropagation()
       setInsightsAt(undefined)
       setPromptCard(undefined)
+      setShipCard(undefined)
     }
     // In the capture phase, so it runs before the view's own Escape
     window.addEventListener('keydown', onKey, true)
@@ -73,18 +80,27 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left, y = e.clientY - rect.top
     sceneRef.current?.pointer((x / rect.width) * 2 - 1, (y / rect.height) * 2 - 1)
-    const hex = sceneRef.current?.hexAt(x, y)
+    const ship = sceneRef.current?.shipAt(x, y)
+    setOverShip(!!ship)
+    const hex = ship ? undefined : sceneRef.current?.hexAt(x, y)
     sceneRef.current?.hoverHex(hex?.turn)
     setOverHex(!!hex)
-    const hit = hex ? undefined : sceneRef.current?.hit(x, y, inputRef.current)
+    const hit = ship || hex ? undefined : sceneRef.current?.hit(x, y, inputRef.current)
     setHover(prev => (prev?.start === hit?.start ? prev : hit))
-    setOverHole(!hex && !hit && !!sceneRef.current?.holeAt(x, y))
+    setOverHole(!ship && !hex && !hit && !!sceneRef.current?.holeAt(x, y))
   }
 
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const scene = sceneRef.current
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left, y = e.clientY - rect.top
+    const ship = scene?.shipAt(x, y)
+    if (ship) {
+      setInsightsAt(undefined); setPromptCard(undefined)
+      setShipCard(prev => (prev?.sub === ship.sub ? undefined : ship))
+      return
+    }
+    setShipCard(undefined)
     const hex = scene?.hexAt(x, y)
     if (hex) {
       setInsightsAt(undefined)
@@ -101,17 +117,21 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
   }
 
   const h = input.horizon
+  const bounds: [number, number] = [canvasRef.current?.clientWidth ?? 0, canvasRef.current?.clientHeight ?? 0]
   return (
     <div className="relative w-full h-full">
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ cursor: hover || overHole || overHex ? 'pointer' : 'default' }}
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ cursor: hover || overHole || overHex || overShip ? 'pointer' : 'default' }}
         onMouseMove={onMove} onClick={onClick}
         onMouseLeave={() => {
-          setHover(undefined); setOverHole(false); setOverHex(false)
+          setHover(undefined); setOverHole(false); setOverHex(false); setOverShip(false)
           sceneRef.current?.hit(-1e6, -1e6, inputRef.current); sceneRef.current?.hoverHex(undefined)
         }} />
-      {insightsAt && <HoleInsights h={h} agents={agents} consumption={input.consumption} at={insightsAt} onClose={() => setInsightsAt(undefined)} />}
+      {insightsAt && <HoleInsights h={h} agents={agents} consumption={input.consumption} at={insightsAt} bounds={bounds} onClose={() => setInsightsAt(undefined)} />}
+      {shipCard && h.subagents[shipCard.sub] && (
+        <SubagentCard h={h} index={shipCard.sub} at={[shipCard.x, shipCard.y]} bounds={bounds} onClose={() => setShipCard(undefined)} />
+      )}
       {promptCard && h.turnLog[promptCard.turn] && (
-        <PromptCard h={h} index={promptCard.turn} at={[promptCard.x, promptCard.y]} onClose={() => setPromptCard(undefined)} />
+        <PromptCard h={h} index={promptCard.turn} at={[promptCard.x, promptCard.y]} bounds={bounds} onClose={() => setPromptCard(undefined)} />
       )}
       {hover && (
         <div className="glass-card absolute font-mono pointer-events-none"
@@ -155,15 +175,24 @@ function Reading({ label, value, note, color = COLORS.holoHot }: { label: string
 
 const PROMPT_MAX = 420
 
+/** A card's place beside a point on the canvas: to its right, or to its left where it would run
+ *  off the canvas (under the side panel), and never above the top */
+function placeCard(at: [number, number], bounds: [number, number], width: number, gap: number, rise: number) {
+  const fitsRight = !bounds[0] || at[0] + gap + width <= bounds[0] - 8
+  return { left: fitsRight ? at[0] + gap : Math.max(8, at[0] - gap - width), top: Math.max(8, at[1] - rise), width }
+}
+
 /** One of your prompts, opened from its hexagon: what you asked, and what it set off */
-function PromptCard({ h, index, at, onClose }: { h: TimeHorizon; index: number; at: [number, number]; onClose: () => void }) {
+function PromptCard({ h, index, at, bounds, onClose }: {
+  h: TimeHorizon; index: number; at: [number, number]; bounds: [number, number]; onClose: () => void
+}) {
   const turn = h.turnLog[index]
   const now = h.start + h.elapsed
   const prompt = turn.prompt && turn.prompt.length > PROMPT_MAX ? `${turn.prompt.slice(0, PROMPT_MAX)}…` : turn.prompt
   return (
     <div className="glass-card absolute font-mono th-enter" onClick={e => e.stopPropagation()}
       style={{
-        left: at[0] + 18, top: Math.max(8, at[1] - 40), width: 290, padding: 14,
+        ...placeCard(at, bounds, 290, 18, 40), padding: 14,
         background: 'rgba(6, 8, 18, 0.94)', borderColor: COLORS.holoBright + '55', boxShadow: `0 0 24px ${COLORS.holoBright}18`,
       }}>
       <div className="flex items-center justify-between">
@@ -189,9 +218,57 @@ function PromptCard({ h, index, at, onClose }: { h: TimeHorizon; index: number; 
   )
 }
 
+/** A subagent's log, opened from its ship or its lane: what it was sent for, and what it brought back */
+function SubagentCard({ h, index, at, bounds, onClose }: {
+  h: TimeHorizon; index: number; at: [number, number]; bounds: [number, number]; onClose: () => void
+}) {
+  const run = h.subagents[index]
+  const now = h.start + h.elapsed
+  const color = shipColor(run.model)
+  return (
+    <div className="glass-card absolute font-mono th-enter" onClick={e => e.stopPropagation()}
+      style={{
+        ...placeCard(at, bounds, 290, 18, 40), padding: 14,
+        background: 'rgba(6, 8, 18, 0.94)', borderColor: color + '55', boxShadow: `0 0 24px ${color}18`,
+      }}>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold tracking-[0.2em] truncate" style={{ color }}>{run.name.toUpperCase()}</span>
+        <button onClick={onClose} className="text-[11px] ml-2" style={{ color: COLORS.textMuted }} aria-label="Close subagent">✕</button>
+      </div>
+      <div className="text-[9px]" style={{ color: COLORS.textDim }}>
+        {run.model ?? 'Subagent'} · {run.end === undefined ? `out for ${formatDuration(now - run.start)}` : `back T−${formatDuration(now - run.end)}`}
+      </div>
+      {run.task && (
+        <div className="mt-2">
+          <div className="text-[8.5px] tracking-[0.2em]" style={{ color: COLORS.textMuted }}>SENT TO</div>
+          <div className="text-[11px] leading-snug" style={{ color: COLORS.textPrimary }}>{run.task}</div>
+        </div>
+      )}
+      {run.summary && (
+        <div className="mt-2">
+          <div className="text-[8.5px] tracking-[0.2em]" style={{ color: COLORS.textMuted }}>BROUGHT BACK</div>
+          <div className="text-[11px] leading-snug max-h-[110px] overflow-y-auto" style={{ color: COLORS.textPrimary }}>{run.summary}</div>
+        </div>
+      )}
+      <div className="mt-3 pt-3 grid grid-cols-2 gap-x-4 gap-y-2" style={{ borderTop: `1px solid ${COLORS.holoBorder08}` }}>
+        <Reading label="TIME OUT" value={formatDuration((run.end ?? now) - run.start)} color={color} />
+        <Reading label="REQUESTS" value={String(run.requests)} />
+        <Reading label="TOOL CALLS" value={String(run.tools)} color={COLORS.timeTools} />
+        <Reading label="WRITTEN" value={`${formatCount(run.outputTokens)} tok`} color={COLORS.horizonLight} />
+      </div>
+    </div>
+  )
+}
+
+/** Agent time per hour of the span, in words: minutes up to the hour, then hours, as dilation passes it */
+function perHour(agentTime: number, elapsed: number): string {
+  const minutes = elapsed > 0 ? (agentTime / elapsed) * 60 : 0
+  return minutes < 60 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} hours`
+}
+
 /** What the black hole holds: the session's measured numbers, read as its physics. Opened by clicking it */
-function HoleInsights({ h, agents, consumption, at, onClose }: {
-  h: TimeHorizon; agents: Map<string, Agent>; consumption?: Consumption; at: [number, number]; onClose: () => void
+function HoleInsights({ h, agents, consumption, at, bounds, onClose }: {
+  h: TimeHorizon; agents: Map<string, Agent>; consumption?: Consumption; at: [number, number]; bounds: [number, number]; onClose: () => void
 }) {
   const { output, cacheRead, requests, mass } = measuredUsage(agents)
   const cost = sessionCosts(agents).total
@@ -203,7 +280,7 @@ function HoleInsights({ h, agents, consumption, at, onClose }: {
   return (
     <div className="glass-card absolute font-mono th-enter" onClick={e => e.stopPropagation()}
       style={{
-        left: at[0] + 120, top: Math.max(8, at[1] - 170), width: 300, padding: 14,
+        ...placeCard(at, bounds, 300, 120, 170), padding: 14,
         // Opaque enough that the disk's labels don't show through it
         background: 'rgba(6, 8, 18, 0.94)',
         borderColor: COLORS.horizonLight + '55', boxShadow: `0 0 30px ${COLORS.horizonLight}18`,
@@ -222,6 +299,14 @@ function HoleInsights({ h, agents, consumption, at, onClose }: {
           note={hours > 0.05 ? `$${(cost.cost / hours).toFixed(2)} per hour of mission time` : undefined} color={COLORS.complete} />
         <Reading label="REQUESTS" value={String(requests)} note={requests > 0 ? `${formatCount(output / requests)} tokens written each` : undefined} />
         <Reading label="TURNS" value={String(h.turns)} note={h.turns > 0 ? `${formatDuration(working / h.turns)} of work each, on average` : undefined} />
+        {h.subagents.length > 0 && (() => {
+          const p = parallelism(h)
+          return (
+            <Reading label="PARALLELISM" value={`${p.peak} at once`}
+              note={`${h.subagents.length} subagent${h.subagents.length === 1 ? '' : 's'}: ${perHour(p.agentTime, h.elapsed)} of agent time an hour`}
+              color={COLORS.timeSubagents} />
+          )
+        })()}
         <Reading label="CONTEXT" value={consumption ? `${Math.round(consumption.fill * 100)}% full` : 'steady'}
           note={consumption ? `Full in ~${formatDuration(consumption.eta)}, at ${formatCount(consumption.rate)} tokens a minute` : 'Not growing: no inspiral'}
           color={COLORS.timePermission} />
@@ -299,8 +384,7 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
     return 0
   }, [agents])
   const consumption = predictConsumption(h.context, contextWindow, currentTime)
-  const worked = h.totals.thinking + h.totals.tools + h.totals.subagents
-  const workedPerHour = h.elapsed > 0 ? (worked / h.elapsed) * 60 : 0
+  const dilation = parallelism(h)
   const cacheLeft = h.cache ? h.cache.expiresAt - currentTime : 0
   const cacheWarm = cacheLeft > 0
   const sceneInput: SceneInput = {
@@ -362,8 +446,15 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
         <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${COLORS.holoBorder08}` }}>
           <div className="text-[9px] tracking-[0.2em]" style={{ color: COLORS.textMuted }}>TIME DILATION</div>
           <div className="mt-1 text-[12px]" style={{ color: COLORS.textPrimary }}>
-            1 hour here = <span style={{ color: COLORS.timeThinking }}>{Math.round(workedPerHour)} min</span> of Claude at work
+            1 hour here = <span style={{ color: dilation.agentTime > h.elapsed ? COLORS.timeSubagents : COLORS.timeThinking }}>
+              {perHour(dilation.agentTime, h.elapsed)}</span> of Claude at work
           </div>
+          {h.subagents.length > 0 && (
+            <div className="text-[9px] leading-snug mt-0.5" style={{ color: COLORS.textDim }}>
+              {h.subagents.length} subagent{h.subagents.length === 1 ? '' : 's'}, up to {dilation.peak} at once
+              {dilation.agentTime > h.elapsed ? ': more time passed for them than for you' : ''}
+            </div>
+          )}
         </div>
 
         <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.holoBorder08}` }}>
@@ -407,7 +498,7 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
         </div>
 
         <div className="mt-3 text-[8.5px] leading-snug" style={{ color: COLORS.textMuted }}>
-          Now is T+0. Outside it, the session so far trails back to the rim; inside, the time to come spirals in to the horizon, where the context fills. Hexagons are your prompts, spinning with the work each set off: click one, or the black hole. Time is counted from when Agent Flow began watching.
+          Now is T+0. Outside it, the session so far trails back to the rim; inside, the time to come spirals in to the horizon, where the context fills. Hexagons are your prompts, spinning with the work each set off; ships are subagents. Click any of them, or the black hole. Time is counted from when Agent Flow began watching.
         </div>
       </div>
     </div>
