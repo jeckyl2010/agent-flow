@@ -12,7 +12,9 @@ export function effortLevel(effort?: string): number | undefined {
 /** Brighter and warmer as effort rises, within the holographic palette */
 export function effortColor(effort?: string): string {
   switch (effortLevel(effort)) {
-    case 1: return COLORS.holoBase + '99'
+    // Opaque, so callers can add their own alpha: '#66ccff' + '99' + '00' isn't a color, and a
+    // gradient stop given one throws, every frame the model tag animates
+    case 1: return COLORS.effortLow
     case 2: return COLORS.holoBase
     case 3: return COLORS.holoBright
     case 4: return COLORS.dispatch
