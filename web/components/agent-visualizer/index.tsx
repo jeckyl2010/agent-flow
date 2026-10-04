@@ -24,6 +24,8 @@ import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar } from "./top-bar"
 import { sessionCosts } from "@/lib/session-costs"
+import { sessionImpacts } from "@/lib/eco-impact"
+import { EcoMoons } from "./eco-moons"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 
 export function AgentVisualizer() {
@@ -209,6 +211,8 @@ export function AgentVisualizer() {
     return { totalTokens: tokens, totalCost: total.cost, isCostEstimate: !total.isExact }
   }, [agents])
 
+  const ecoImpacts = useMemo(() => sessionImpacts(agents), [agents])
+
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   const selectedConversation = selection.selectedAgentId ? (conversations.get(selection.selectedAgentId) || []) : []
 
@@ -290,6 +294,9 @@ export function AgentVisualizer() {
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
       />
+
+      {/* Environmental footprint (right edge), out of the way of the right-hand panels */}
+      <EcoMoons impacts={ecoImpacts} hidden={showFileAttention || showTranscript || showCostOverlay} />
 
       {/* Message feed panel (top-left) */}
       <MessageFeedPanel

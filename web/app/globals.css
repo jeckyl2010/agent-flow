@@ -202,3 +202,41 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+/* Eco moons */
+@keyframes eco-enter {
+  from { opacity: 0; transform: translateX(28px) scale(0.5); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes eco-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+@keyframes eco-orbit {
+  to { transform: rotate(360deg); }
+}
+@keyframes eco-breathe {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.13); }
+  100% { transform: scale(1); }
+}
+@keyframes eco-flash {
+  from { opacity: 0.9; }
+  to { opacity: 0; }
+}
+@keyframes eco-ripple {
+  from { transform: scale(1); opacity: 0.85; }
+  to { transform: scale(1.8); opacity: 0; }
+}
+@keyframes eco-spark {
+  from { transform: rotate(var(--a)) translateX(30px) scale(1.2); opacity: 1; }
+  to { transform: rotate(var(--a)) translateX(68px) scale(0); opacity: 0; }
+}
+@keyframes eco-delta {
+  0% { transform: translateY(4px); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translateY(-30px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eco-moon, .eco-moon * { animation: none !important; }
+  .eco-delta-chip { display: none; }
+}
