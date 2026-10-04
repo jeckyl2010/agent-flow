@@ -82,6 +82,7 @@ test('the cache lasts its TTL from the start of the request that last used it', 
   assert.equal(h.cache?.ttl, 3600)
   assert.ok(Math.abs(h.cache!.expiresAt - (100 - 13.43 + 3600)) < 1e-9)
   assert.equal(h.cache?.tokens, 5000)
+  assert.equal(h.cache?.model, 'claude-opus-5-5')
 
   // A read keeps the 1-hour TTL and refreshes it
   h = timeHorizon([spawn,

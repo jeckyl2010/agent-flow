@@ -120,3 +120,33 @@ test('a subagent started from a subagent names its parent', async ($, on) => {
     agent_id: 'child-1', agent_type: 'Explore', description: 'Find the config', parent_agent_id: 'parent-1',
   }))
 })
+
+test('a teammate is sent with its name, its states as they change, and its end from its status', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'mate-1', teammateId: 'researcher@team' }))
+  let status = 'running'
+  on('agent.list', () => ({ value: status === 'gone' ? [] : [
+    { id: 'mate-1', description: 'Research the API', type: 'teammate', status, name: 'researcher' },
+    { id: 'someone-else', description: 'Not ours', type: 'Explore', status: 'idle' },
+  ] as never }))
+
+  await $.agent.spawn({
+    tool_use_id: 'tu-team', prompt: 'Research', description: 'Research the API', subagentType: 'teammate',
+    isTeammate: true, name: 'researcher', parentAgentId: undefined,
+  } as never)
+  await clock.advance(1_000)
+  status = 'idle'
+  await clock.advance(1_000)
+  await clock.advance(1_000) // unchanged: not sent again
+  status = 'gone'
+  await clock.advance(1_000)
+  await clock.settle()
+
+  const sent = posts.map(p => p.body)
+  expect(sent.find(b => b.hook_event_name === 'SubagentStart')).toEqual(expect.objectContaining({
+    agent_id: 'mate-1', is_teammate: true, agent_name: 'researcher',
+  }))
+  expect(sent.filter(b => b.hook_event_name === 'AgentStatus').map(b => [b.agent_id, b.status]))
+    .toEqual([['mate-1', 'running'], ['mate-1', 'idle']])
+  expect(sent.filter(b => b.hook_event_name === 'SubagentStop').map(b => b.agent_id)).toEqual(['mate-1'])
+})

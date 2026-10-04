@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { modelPrice, blendedRate, stepCost, cacheHitRatio } from '../web/lib/model-pricing'
+import { modelPrice, blendedRate, stepCost, cacheHitRatio, cachedPromptCost } from '../web/lib/model-pricing'
 
 const usage = (input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
   input_tokens: input, output_tokens: output,
@@ -49,4 +49,14 @@ test('cache hit ratio is the share of input the cache served', () => {
   assert.equal(cacheHitRatio(usage(10, 500, 90, 0)), 0.9)
   assert.equal(cacheHitRatio(usage(50, 0, 0, 50)), 0)
   assert.equal(cacheHitRatio(usage(0, 100)), undefined)
+})
+
+test('a cached prompt costs a read while warm, and a rewrite at its TTL once lapsed', () => {
+  // Opus 5.5: $4 input, $0.20 cache read. A 1-hour write is 2× input, a 5-minute one 1.25×
+  const hour = cachedPromptCost(100_000, 3600, 'claude-opus-5-5')
+  assert.ok(Math.abs(hour.warm - 0.02) < 1e-12)
+  assert.ok(Math.abs(hour.cold - 0.8) < 1e-12)
+  const five = cachedPromptCost(100_000, 300, 'claude-opus-5-5')
+  assert.ok(Math.abs(five.cold - 0.5) < 1e-12)
+  assert.equal(five.warm, hour.warm)
 })

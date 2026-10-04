@@ -54,6 +54,14 @@ export function modelPrice(model?: string): ModelPrice {
   return FALLBACK_PRICE
 }
 
+/** What resending a cached prompt costs, $: read while the cache is warm, written to it again
+ *  (at the write rate of its TTL) once it has lapsed */
+export function cachedPromptCost(tokens: number, ttlSeconds: number, model?: string): { warm: number; cold: number } {
+  const p = modelPrice(model)
+  const write = ttlSeconds >= 3600 ? CACHE_WRITE_1H_MULTIPLIER : CACHE_WRITE_MULTIPLIER
+  return { warm: (tokens * p.cacheRead) / 1e6, cold: (tokens * p.input * write) / 1e6 }
+}
+
 /** $ per million tokens for an estimate that has no input/output split: 0.75 × input + 0.25 × output */
 export function blendedRate(model?: string): number {
   const { input, output } = modelPrice(model)

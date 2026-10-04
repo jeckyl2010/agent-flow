@@ -11,6 +11,7 @@ import {
   type Consumption, type TimeHorizon, type TimeKind,
 } from '@/lib/time-horizon'
 import { sessionCosts } from '@/lib/session-costs'
+import { cachedPromptCost } from '@/lib/model-pricing'
 import { sessionImpacts, midpoint, formatImpact } from '@/lib/eco-impact'
 import { createScene, shipColor, KIND_COLOR, type Hover, type Scene, type SceneInput } from './time-horizon-scene'
 
@@ -402,6 +403,8 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
   const dilation = parallelism(h)
   const cacheLeft = h.cache ? h.cache.expiresAt - currentTime : 0
   const cacheWarm = cacheLeft > 0
+  // API list prices: on a subscription, a share of its limits rather than dollars
+  const cacheCost = h.cache ? cachedPromptCost(h.cache.tokens, h.cache.ttl, h.cache.model) : undefined
   const sceneInput: SceneInput = {
     horizon: h,
     consumption,
@@ -487,6 +490,13 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
                   ? `your next message reuses ${formatCount(h.cache.tokens)} cached tokens`
                   : `your next message writes ${formatCount(h.cache.tokens)} tokens to it again`}
               </div>
+              {cacheCost && (
+                <div className="text-[9px] leading-snug mt-0.5" style={{ color: COLORS.textDim }}>
+                  {cacheWarm
+                    ? <>Reading them: <span style={{ color: COLORS.textPrimary }}>{usd(cacheCost.warm)}</span>. Lapsed: {usd(cacheCost.cold)}, {multiple(cacheCost)} as much</>
+                    : <>Writing them: <span style={{ color: COLORS.timePermission }}>{usd(cacheCost.cold)}</span>, {multiple(cacheCost)} the {usd(cacheCost.warm)} of a warm read</>}
+                </div>
+              )}
             </>
           ) : (
             <div className="mt-1 text-[10px]" style={{ color: COLORS.textDim }}>No measured requests yet</div>
@@ -522,3 +532,13 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
     </div>
   )
 })
+
+/** A small amount of money with the digits that show it: $0.0066, $0.26, $1.40 */
+function usd(v: number): string {
+  return `$${v.toFixed(v < 0.01 ? 4 : v < 1 ? 3 : 2)}`
+}
+
+/** How many times a warm read a cold rewrite costs: `40×` */
+function multiple({ warm, cold }: { warm: number; cold: number }): string {
+  return warm > 0 ? `${Math.round(cold / warm)}×` : ''
+}

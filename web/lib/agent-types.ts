@@ -30,6 +30,8 @@ export interface Agent {
   vy: number
   pinned: boolean
   isMain: boolean
+  /** A teammate in an agent team: long-lived, idle between the messages it's sent */
+  isTeammate?: boolean
   /** Which agent runtime produced this agent — used to pick the brand logo.
    *  Optional for forward compat with events that don't carry it (defaults to 'claude'). */
   runtime?: 'claude' | 'codex'
@@ -229,6 +231,7 @@ export interface SimulationEvent {
     | 'agent_spawn'
     | 'agent_complete'
     | 'agent_idle'
+    | 'agent_status'
     | 'message'
     | 'context_update'
     | 'model_detected'

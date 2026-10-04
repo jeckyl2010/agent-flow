@@ -27,6 +27,8 @@ export interface PromptCache {
   expiresAt: number
   /** Tokens the latest request read from it or wrote to it: what a cold start would resend */
   tokens: number
+  /** The model that request ran on, whose prices a read or a rewrite pays */
+  model?: string
 }
 
 export interface TimeHorizon {
@@ -267,7 +269,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
         const tokens = num(usage.cache_read_input_tokens) + written
         if (tokens > 0) {
           const startedAt = e.time - generationSeconds(str(p.model), num(usage.output_tokens))
-          cache = { ttl, expiresAt: startedAt + ttl, tokens }
+          cache = { ttl, expiresAt: startedAt + ttl, tokens, model: str(p.model) || undefined }
         }
         // What the next request starts from: all it read, plus what it wrote
         const window = tokens + num(usage.input_tokens) + num(usage.output_tokens)

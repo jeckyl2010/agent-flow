@@ -83,6 +83,8 @@ sessions it reports, Agent Flow shows:
 - subagents by their real ids, under the agent that started them
 - each agent's model and its context fill as the API measured it, not an estimate
 - answers and thinking streaming in as the model writes them
+- agent-team teammates by their names in the team (Claude Code 2.1.289+)
+- when a subagent or teammate is idle or waiting, as Claude Code reports it (2.1.289+)
 
 Load it with `claude --plugin-dir /path/to/agent-flow/plugin`, then run
 `/agent-flow` in Claude Code to see where it sends events. It finds a running
