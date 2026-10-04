@@ -24,6 +24,8 @@ import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar } from "./top-bar"
 import { sessionCosts } from "@/lib/session-costs"
+import { sessionImpacts } from "@/lib/eco-impact"
+import { EcoMoons } from "./eco-moons"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 
 export function AgentVisualizer() {
@@ -170,11 +172,13 @@ export function AgentVisualizer() {
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleResumeLive = useCallback(() => {
     setIsReviewing(false)
+    // Live runs in real time: the review's playback speed stays behind (set first, the seek keeps it)
+    setSpeed(1)
     seekToTime(maxTimeReached)
     setZoomToFitTrigger(n => n + 1)
     if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
     resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; play() }, TIMING.resumeLiveDelayMs)
-  }, [seekToTime, maxTimeReached, play])
+  }, [seekToTime, maxTimeReached, play, setSpeed])
   useEffect(() => () => { if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current) }, [])
 
   const handleRestart = useCallback(() => {
@@ -196,9 +200,10 @@ export function AgentVisualizer() {
     deselectAgent: () => { selection.clearAgent() },
     closeTranscript: () => { setShowTranscript(false) },
     toggleMute: handleToggleMute,
-    setSpeed,
+    // Speed is for reviewing: live runs in real time
+    setSpeed: (s: number) => { if (isReviewing) setSpeed(s) },
     selectedAgentId: selection.selectedAgentId,
-  }), [handlePlayPause, selection.clearAllSelections, selection.clearAgent, selection.selectedAgentId, setSpeed, handleToggleMute, toggleExclusivePanel])
+  }), [handlePlayPause, selection.clearAllSelections, selection.clearAgent, selection.selectedAgentId, setSpeed, isReviewing, handleToggleMute, toggleExclusivePanel])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -208,6 +213,8 @@ export function AgentVisualizer() {
     const { total } = sessionCosts(agents)
     return { totalTokens: tokens, totalCost: total.cost, isCostEstimate: !total.isExact }
   }, [agents])
+
+  const ecoImpacts = useMemo(() => sessionImpacts(agents), [agents])
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   const selectedConversation = selection.selectedAgentId ? (conversations.get(selection.selectedAgentId) || []) : []
@@ -290,6 +297,9 @@ export function AgentVisualizer() {
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
       />
+
+      {/* Environmental footprint (right edge), out of the way of the right-hand panels */}
+      <EcoMoons impacts={ecoImpacts} hidden={showFileAttention || showTranscript || showCostOverlay} />
 
       {/* Message feed panel (top-left) */}
       <MessageFeedPanel

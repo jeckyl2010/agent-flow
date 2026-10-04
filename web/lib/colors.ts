@@ -149,6 +149,14 @@ export const COLORS = {
   costPillBg: 'rgba(10, 20, 40, 0.75)',
   costPillStroke: 'rgba(102, 255, 170, 0.3)',
 
+  // Eco moons — one accent per impact
+  ecoEnergy: '#ffd066',
+  ecoCarbon: '#8fe3a8',
+  ecoWater: '#5ccfff',
+  ecoMetals: '#c7a98a',
+  ecoFossil: '#ff8a66',
+  ecoMoonBg: 'rgba(8, 14, 30, 0.82)',
+
   // Canvas drawing — cost panel bar fills
   barFillMain: 'rgba(102, 204, 255, 0.15)',
   barFillSub: 'rgba(204, 136, 255, 0.15)',

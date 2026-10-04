@@ -49,6 +49,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const animateRef = useRef<(timestamp: number) => void>(() => {})
   /** Throttle React UI updates to ~4/sec — canvas stays smooth via frameRef */
   const lastUIUpdateRef = useRef(0)
+  /** The frame has changed what the UI shows since React last rendered it */
+  const uiStaleRef = useRef(false)
 
   // ─── d3-force simulation ─────────────────────────────────────────────────
   useEffect(() => {
@@ -269,12 +271,16 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // Force tick — updates agent positions in frameRef
     if (forceSimRef.current) forceSimRef.current.tick()
 
-    // Throttle React re-renders — UI updates at ~4/sec, canvas stays smooth via frameRef
-    if (newEvents.length > 0) {
-      if (!lastUIUpdateRef.current || timestamp - lastUIUpdateRef.current >= UI_THROTTLE_MS) {
-        setState(frameRef.current)
-        lastUIUpdateRef.current = timestamp
-      }
+    // Throttle React re-renders — UI updates at ~4/sec, canvas stays smooth via frameRef. New
+    // events, events replayed from the log (review playback) and the clock's seconds all show in
+    // the UI; a change that lands inside the throttle window is rendered once it has passed.
+    if (newEvents.length > 0 || newEventIndex !== prev.eventIndex || Math.floor(newTime) !== Math.floor(prev.currentTime)) {
+      uiStaleRef.current = true
+    }
+    if (uiStaleRef.current && (!lastUIUpdateRef.current || timestamp - lastUIUpdateRef.current >= UI_THROTTLE_MS)) {
+      setState(frameRef.current)
+      lastUIUpdateRef.current = timestamp
+      uiStaleRef.current = false
     }
 
     animationRef.current = requestAnimationFrame(animateRef.current)

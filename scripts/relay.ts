@@ -210,6 +210,7 @@ function watchSession(sessionId: string, filePath: string) {
     model: null,
     modelDetectedAgents: new Map(),
     permissionTimer: null, permissionEmitted: false,
+    usageSeenIds: new Set(), usageTotals: new Map(),
     contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
   }
   sessions.set(sessionId, session)
@@ -228,6 +229,7 @@ function watchSession(sessionId: string, filePath: string) {
   session.sessionDetected = true
 
   emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
+  parser.emitUsageCatchUp(ORCHESTRATOR_NAME, catchUpEntries, session, sessionId)
   parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
 
   session.fileWatcher = fs.watch(filePath, (eventType) => {

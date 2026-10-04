@@ -1,0 +1,310 @@
+{
+  "source": "https://github.com/mlco2/ecologits/tree/c739e8d61f6a12a85864adb698ab85623fe70f3c",
+  "license": "MPL-2.0",
+  "provider": {
+    "location": "USA",
+    "pue": {
+      "min": 1.09,
+      "max": 1.14
+    },
+    "wue": {
+      "min": 0.13,
+      "max": 0.999
+    }
+  },
+  "models": [
+    {
+      "name": "claude-fable-5",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 1340,
+          "active": {
+            "min": 134,
+            "max": 400
+          }
+        }
+      },
+      "deployment": {
+        "tps": 42,
+        "ttft": 3.52
+      },
+      "warnings": [
+        "model-arch-not-released",
+        "model-arch-multimodal"
+      ]
+    },
+    {
+      "name": "claude-fable-5-1",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 1340,
+          "active": {
+            "min": 134,
+            "max": 400
+          }
+        }
+      },
+      "deployment": {
+        "tps": 53,
+        "ttft": 5.96
+      },
+      "warnings": [
+        "model-arch-not-released",
+        "model-arch-multimodal"
+      ]
+    },
+    {
+      "name": "claude-haiku-4-5-20251001",
+      "architecture": {
+        "type": "dense",
+        "parameters": {
+          "min": 10,
+          "max": 35
+        }
+      },
+      "deployment": {
+        "tps": 60,
+        "ttft": 0.61
+      },
+      "warnings": [
+        "model-arch-not-released"
+      ]
+    },
+    {
+      "name": "claude-opus-4-5-20251101",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 670,
+          "active": {
+            "min": 67,
+            "max": 200
+          }
+        }
+      },
+      "deployment": {
+        "tps": 33,
+        "ttft": 1.24
+      },
+      "warnings": [
+        "model-arch-not-released"
+      ]
+    },
+    {
+      "name": "claude-opus-4-6",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 670,
+          "active": {
+            "min": 67,
+            "max": 200
+          }
+        }
+      },
+      "deployment": {
+        "tps": 36,
+        "ttft": 1.69
+      },
+      "warnings": [
+        "model-arch-not-released"
+      ]
+    },
+    {
+      "name": "claude-opus-4-7",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 670,
+          "active": {
+            "min": 67,
+            "max": 200
+          }
+        }
+      },
+      "deployment": {
+        "tps": 53,
+        "ttft": 1.35
+      },
+      "warnings": [
+        "model-arch-not-released"
+      ]
+    },
+    {
+      "name": "claude-opus-4-8",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 670,
+          "active": {
+            "min": 67,
+            "max": 200
+          }
+        }
+      },
+      "deployment": {
+        "tps": 108.5,
+        "ttft": 1.01
+      },
+      "warnings": [
+        "model-arch-not-released"
+      ]
+    },
+    {
+      "name": "claude-opus-5",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 670,
+          "active": {
+            "min": 67,
+            "max": 200
+          }
+        }
+      },
+      "deployment": {
+        "tps": 20.5,
+        "ttft": 1.96
+      },
+      "warnings": [
+        "model-arch-not-released",
+        "model-arch-multimodal"
+      ]
+    },
+    {
+      "name": "claude-opus-5-5",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 670,
+          "active": {
+            "min": 70,
+            "max": 200
+          }
+        }
+      },
+      "deployment": {
+        "tps": 75.5,
+        "ttft": 3.43
+      },
+      "warnings": [
+        "model-arch-not-released",
+        "model-arch-multimodal"
+      ]
+    },
+    {
+      "name": "claude-sonnet-4-5-20250929",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 440,
+          "active": {
+            "min": 44,
+            "max": 132
+          }
+        }
+      },
+      "deployment": {
+        "tps": 44,
+        "ttft": 1.18
+      },
+      "warnings": [
+        "model-arch-not-released"
+      ]
+    },
+    {
+      "name": "claude-sonnet-4-6",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 440,
+          "active": {
+            "min": 44,
+            "max": 132
+          }
+        }
+      },
+      "deployment": {
+        "tps": 39,
+        "ttft": 1.37
+      },
+      "warnings": [
+        "model-arch-not-released"
+      ]
+    },
+    {
+      "name": "claude-sonnet-5",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 293,
+          "active": {
+            "min": 29,
+            "max": 88
+          }
+        }
+      },
+      "deployment": {
+        "tps": 16,
+        "ttft": 1.13
+      },
+      "warnings": [
+        "model-arch-not-released",
+        "model-arch-multimodal"
+      ]
+    },
+    {
+      "name": "claude-sonnet-5-5",
+      "architecture": {
+        "type": "moe",
+        "parameters": {
+          "total": 293,
+          "active": {
+            "min": 29,
+            "max": 88
+          }
+        }
+      },
+      "deployment": {
+        "tps": 91,
+        "ttft": 3.35
+      },
+      "warnings": [
+        "model-arch-not-released",
+        "model-arch-multimodal"
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "name": "claude-haiku-4-5",
+      "alias": "claude-haiku-4-5-20251001"
+    },
+    {
+      "name": "claude-sonnet-4-5",
+      "alias": "claude-sonnet-4-5-20250929"
+    },
+    {
+      "name": "claude-opus-4-5",
+      "alias": "claude-opus-4-5-20251101"
+    }
+  ],
+  "electricityMixes": [
+    {
+      "name": "USA",
+      "adpe": 9.855e-8,
+      "pe": 9.6884,
+      "gwp": 0.3844,
+      "wue": 3.1321
+    },
+    {
+      "name": "WOR",
+      "adpe": 1.349e-8,
+      "pe": 2.5871,
+      "gwp": 0.45829,
+      "wue": 3.908
+    }
+  ]
+}

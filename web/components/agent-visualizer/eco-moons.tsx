@@ -1,0 +1,247 @@
+'use client'
+
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Z } from '@/lib/agent-types'
+import { COLORS } from '@/lib/colors'
+import {
+  formatImpact, impactEquivalent, midpoint,
+  type ImpactKind, type Range, type SessionImpacts,
+} from '@/lib/eco-impact'
+
+const SIZE = 54
+const RING_R = SIZE / 2 + 5
+const RING_C = 2 * Math.PI * RING_R
+
+interface MoonSpec {
+  kind: ImpactKind
+  label: string
+  color: string
+  icon: ReactNode
+  about: string
+}
+
+const iconProps = { width: 11, height: 11, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' } as const
+
+const MOONS: readonly MoonSpec[] = [
+  {
+    kind: 'energy', label: 'Electricity', color: COLORS.ecoEnergy,
+    icon: <svg {...iconProps}><path d="M13 2 4 14h7l-1 8 9-12h-7z" /></svg>,
+    about: 'Energy the GPUs and servers drew to generate the answers, data center overhead included.',
+  },
+  {
+    kind: 'gwp', label: 'Carbon footprint', color: COLORS.ecoCarbon,
+    icon: <svg {...iconProps}><path d="M7 18a5 5 0 0 1-.6-9.96A6 6 0 0 1 18 8a4.5 4.5 0 0 1-.5 10z" /></svg>,
+    about: 'Greenhouse gases from generating that electricity, plus a share of building the hardware.',
+  },
+  {
+    kind: 'wcf', label: 'Water', color: COLORS.ecoWater,
+    icon: <svg {...iconProps}><path d="M12 2.5s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z" /></svg>,
+    about: 'Water evaporated to cool the data center and to produce its electricity.',
+  },
+  {
+    kind: 'adpe', label: 'Metals & minerals', color: COLORS.ecoMetals,
+    icon: <svg {...iconProps}><path d="M6 3h12l4 6-10 12L2 9z" /><path d="M2 9h20" /></svg>,
+    about: 'Depletion of scarce metals and minerals, in antimony equivalent: mostly the hardware’s.',
+  },
+  {
+    kind: 'pe', label: 'Primary energy', color: COLORS.ecoFossil,
+    icon: <svg {...iconProps}><path d="M12 22c4 0 7-2.7 7-7 0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-2 2-5 4.5-5 8 0 4.3 3 7 7 7z" /></svg>,
+    about: 'Primary energy behind it, fossil fuels foremost: extracted, burned and lost on the way.',
+  },
+]
+
+/** Index of the 1–2–5 step at or below the value: the milestones a moon celebrates crossing */
+function milestoneIndex(v: number): number {
+  if (v <= 0) return -Infinity
+  const decade = Math.floor(Math.log10(v))
+  const m = v / 10 ** decade
+  return decade * 3 + (m >= 5 ? 2 : m >= 2 ? 1 : 0)
+}
+
+function milestoneValue(i: number): number {
+  const decade = Math.floor(i / 3)
+  return [1, 2, 5][i - decade * 3] * 10 ** decade
+}
+
+/** How far the value is from its last milestone to the next, 0 to 1, on a log scale */
+function milestoneProgress(v: number): number {
+  const i = milestoneIndex(v)
+  if (!Number.isFinite(i)) return 0
+  const lo = milestoneValue(i)
+  const hi = milestoneValue(i + 1)
+  return Math.log(v / lo) / Math.log(hi / lo)
+}
+
+/** Eases toward the target; snaps when it falls (seeking back, a new session) */
+function useTweened(target: number, ms = 900): number {
+  const [value, setValue] = useState(target)
+  const current = useRef(target)
+  useEffect(() => {
+    if (target <= current.current) {
+      current.current = target
+      setValue(target)
+      return
+    }
+    const from = current.current
+    const start = performance.now()
+    let raf = 0
+    const step = (now: number) => {
+      const k = Math.min(1, (now - start) / ms)
+      current.current = from + (target - from) * (1 - (1 - k) ** 3)
+      setValue(current.current)
+      if (k < 1) raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [target, ms])
+  return value
+}
+
+interface Delta { id: number; text: string }
+
+let nextDeltaId = 0
+
+function Moon({ spec, range, index, footnote }: { spec: MoonSpec; range: Range; index: number; footnote: string }) {
+  const target = midpoint(range)
+  const shown = useTweened(target)
+  const [pulse, setPulse] = useState(0)
+  const [burst, setBurst] = useState(0)
+  const [deltas, setDeltas] = useState<Delta[]>([])
+  const [hovered, setHovered] = useState(false)
+  const previous = useRef(target)
+
+  useEffect(() => {
+    const before = previous.current
+    previous.current = target
+    if (before <= 0 || target <= before) return
+    const d = formatImpact(spec.kind, target - before)
+    setPulse(p => p + 1)
+    const delta = { id: nextDeltaId++, text: `+${d.value} ${d.unit}` }
+    setDeltas(list => [...list.slice(-2), delta])
+    if (milestoneIndex(target) > milestoneIndex(before)) setBurst(b => b + 1)
+  }, [target, spec.kind])
+
+  const { value, unit } = formatImpact(spec.kind, shown)
+  const progress = milestoneProgress(shown)
+  const lo = formatImpact(spec.kind, range.min)
+  const hi = formatImpact(spec.kind, range.max)
+  const equivalent = impactEquivalent(spec.kind, target)
+  const c = spec.color
+
+  return (
+    <div
+      className="eco-moon relative"
+      style={{ width: SIZE, height: SIZE, zIndex: hovered ? 2 : undefined, animation: `eco-enter 0.6s ${index * 0.08}s cubic-bezier(.2,1.4,.4,1) both` }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className="absolute inset-0" style={{ animation: `eco-bob ${5.5 + index * 0.7}s ${-index * 1.3}s ease-in-out infinite` }}>
+        {/* Progress toward the next 1–2–5 milestone */}
+        <svg className="absolute pointer-events-none" width={RING_R * 2 + 4} height={RING_R * 2 + 4}
+          style={{ left: SIZE / 2 - RING_R - 2, top: SIZE / 2 - RING_R - 2, transform: 'rotate(-90deg)' }}>
+          <circle cx={RING_R + 2} cy={RING_R + 2} r={RING_R} fill="none" stroke={c + '18'} strokeWidth={1.5} />
+          <circle cx={RING_R + 2} cy={RING_R + 2} r={RING_R} fill="none" stroke={c} strokeWidth={1.5}
+            strokeLinecap="round" strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - progress)}
+            style={{ filter: `drop-shadow(0 0 3px ${c})`, opacity: 0.85 }} />
+        </svg>
+
+        {/* A satellite, slowly orbiting */}
+        <div className="absolute inset-0 pointer-events-none" style={{ animation: `eco-orbit ${14 + index * 3}s linear infinite${index % 2 ? ' reverse' : ''}` }}>
+          <div className="absolute rounded-full" style={{ width: 4, height: 4, left: SIZE / 2 - 2, top: -9, background: c, boxShadow: `0 0 6px ${c}` }} />
+        </div>
+
+        {/* Milestone: shockwaves and sparks */}
+        {burst > 0 && (
+          <div key={`burst-${burst}`} className="absolute inset-0 pointer-events-none">
+            {[0, 0.18].map(delay => (
+              <div key={delay} className="absolute inset-0 rounded-full"
+                style={{ border: `2px solid ${c}`, animation: `eco-ripple 1.1s ${delay}s ease-out both` }} />
+            ))}
+            {Array.from({ length: 10 }, (_, i) => (
+              <div key={i} className="absolute rounded-full"
+                style={{
+                  width: 3, height: 3, left: SIZE / 2 - 1.5, top: SIZE / 2 - 1.5, background: c, boxShadow: `0 0 4px ${c}`,
+                  ['--a' as string]: `${i * 36 + 8}deg`,
+                  animation: `eco-spark 0.9s ${0.05 + (i % 3) * 0.04}s ease-out both`,
+                }} />
+            ))}
+          </div>
+        )}
+
+        {/* The moon */}
+        <div key={`pulse-${pulse}`} className="absolute inset-0 rounded-full flex flex-col items-center justify-center font-mono"
+          style={{
+            background: `radial-gradient(circle at 35% 30%, ${c}2e, ${COLORS.ecoMoonBg} 62%)`,
+            border: `1px solid ${c}55`,
+            boxShadow: `0 0 14px ${c}22, inset 0 0 10px ${c}14`,
+            backdropFilter: 'blur(10px)',
+            animation: pulse ? 'eco-breathe 0.7s ease-out' : undefined,
+          }}>
+          {pulse > 0 && <div className="absolute inset-0 rounded-full pointer-events-none"
+            style={{ boxShadow: `0 0 22px ${c}, inset 0 0 14px ${c}88`, animation: 'eco-flash 0.9s ease-out both' }} />}
+          <span style={{ color: c, opacity: 0.8, lineHeight: 1 }}>{spec.icon}</span>
+          <span className="text-[12px] font-semibold tabular-nums" style={{ color: COLORS.holoHot, lineHeight: 1.25, textShadow: `0 0 6px ${c}88` }}>
+            {value}
+          </span>
+          <span className="text-[7.5px]" style={{ color: c, opacity: 0.85, lineHeight: 1 }}>{unit}</span>
+        </div>
+      </div>
+
+      {/* What each update added, rising away */}
+      {deltas.map(d => (
+        <div key={d.id} className="eco-delta-chip absolute font-mono text-[9px] whitespace-nowrap pointer-events-none"
+          style={{ right: SIZE + 10, top: SIZE / 2 - 6, color: c, textShadow: `0 0 6px ${c}`, animation: 'eco-delta 1.6s ease-out both' }}
+          onAnimationEnd={() => setDeltas(list => list.filter(x => x.id !== d.id))}>
+          {d.text}
+        </div>
+      ))}
+
+      {hovered && (
+        <div className="glass-card absolute font-mono pointer-events-none"
+          style={{ right: SIZE + 14, top: -6, width: 230, padding: 10, zIndex: 1, borderColor: c + '40' }}>
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider" style={{ color: c }}>
+            {spec.icon}{spec.label.toUpperCase()}
+          </div>
+          <div className="mt-1.5 text-[16px] font-semibold" style={{ color: COLORS.holoHot }}>
+            ~{formatImpact(spec.kind, target).value} <span className="text-[10px]" style={{ color: c }}>{formatImpact(spec.kind, target).unit}</span>
+          </div>
+          <div className="text-[9px]" style={{ color: COLORS.textDim }}>
+            range {lo.value} {lo.unit} – {hi.value} {hi.unit}
+          </div>
+          {equivalent && <div className="mt-1 text-[9px]" style={{ color: COLORS.textPrimary }}>{equivalent}</div>}
+          <div className="mt-2 text-[9px] leading-snug" style={{ color: COLORS.textDim }}>{spec.about}</div>
+          <div className="mt-2 pt-2 text-[8.5px] leading-snug" style={{ color: COLORS.textMuted, borderTop: `1px solid ${COLORS.holoBorder08}` }}>
+            {footnote}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The session's environmental footprint, after EcoLogits: five moons down the right edge that
+ * count up as requests come in, flash what each added, and burst on crossing a 1–2–5 milestone.
+ * They glide aside while a right-hand panel is open.
+ */
+export const EcoMoons = memo(function EcoMoons({ impacts, hidden }: { impacts: SessionImpacts; hidden: boolean }) {
+  if (impacts.outputTokens === 0) return null
+
+  const notes = ['EcoLogits estimate from output tokens only: input and cache reads are not counted. Model sizes are estimated, hence the range.']
+  if (impacts.uncountedAgents > 0) notes.push(`${impacts.uncountedAgents} agent${impacts.uncountedAgents > 1 ? 's' : ''} on a model EcoLogits doesn’t cover left out.`)
+  if (impacts.isPartial) notes.push('Some requests weren’t measured, so this is a floor.')
+  const footnote = notes.join(' ')
+
+  return (
+    <div className="absolute flex flex-col"
+      style={{
+        top: 64, right: 22, gap: 20, zIndex: Z.info, pointerEvents: hidden ? 'none' : 'auto',
+        opacity: hidden ? 0 : 1, transform: hidden ? 'translateX(90px)' : 'none',
+        transition: 'opacity 0.35s ease, transform 0.5s cubic-bezier(.3,1.3,.5,1)',
+      }}>
+      {MOONS.map((spec, i) => (
+        <Moon key={spec.kind} spec={spec} range={impacts.total[spec.kind]} index={i} footnote={footnote} />
+      ))}
+    </div>
+  )
+})
