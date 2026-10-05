@@ -12,7 +12,7 @@ import {
 } from '@/lib/time-horizon'
 import { sessionCosts } from '@/lib/session-costs'
 import { cachedPromptCost } from '@/lib/model-pricing'
-import { sessionImpacts, midpoint, formatImpact } from '@/lib/eco-impact'
+import { chosenGrid, sessionImpacts, midpoint, formatImpact } from '@/lib/eco-impact'
 import { createScene, shipColor, KIND_COLOR, type Hover, type Scene, type SceneInput } from './time-horizon-scene'
 import { createGlScene, type Backdrop, type GlScene } from './time-horizon/gl/scene'
 
@@ -320,7 +320,7 @@ function HoleInsights({ h, agents, consumption, at, bounds, onClose }: {
 }) {
   const { output, cacheRead, requests, mass } = measuredUsage(agents)
   const cost = sessionCosts(agents).total
-  const energy = midpoint(sessionImpacts(agents).total.energy)
+  const energy = midpoint(sessionImpacts(agents, chosenGrid()).total.energy)
   const working = h.elapsed - h.totals.waiting
   const perTurn = h.turns > 0 ? formatImpact('energy', energy / h.turns) : undefined
   const hours = h.elapsed / 3600

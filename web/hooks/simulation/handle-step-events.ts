@@ -1,4 +1,5 @@
 import type { Agent, AgentSpend, ModelOutput, ModelStepPulse, ModelTag } from '@/lib/agent-types'
+import type { InferenceSite } from '@/lib/inference-zone'
 import { effortColor } from '@/lib/effort'
 import { modelTagLabel } from '@/lib/utils'
 import { stepCost, cacheHitRatio, type StepUsage } from '@/lib/model-pricing'
@@ -17,6 +18,14 @@ function asUsage(v: unknown): StepUsage | undefined {
     cache_creation_input_tokens: n('cache_creation_input_tokens'),
     cache_creation_1h_input_tokens: n('cache_creation_1h_input_tokens'),
   }
+}
+
+/** Where the request ran, as the bridge mod reports it: `{ platform, region? }` */
+function asSite(v: unknown): InferenceSite | undefined {
+  if (!v || typeof v !== 'object') return undefined
+  const { platform, region } = v as { platform?: unknown; region?: unknown }
+  if (platform !== 'anthropic' && platform !== 'bedrock' && platform !== 'vertex' && platform !== 'foundry') return undefined
+  return { platform, ...(typeof region === 'string' && region ? { region } : {}) }
 }
 
 /** The agent's usage so far as the relay totals it, per model: `{ steps, byModel: [{ model, ...usage }] }` */
@@ -80,7 +89,11 @@ export function handleModelStep(
   const effort = typeof payload.effort === 'string' ? payload.effort : undefined
   const cost = stepCost(usage, model)
   const totals = spendFromTotals(payload.totals, payload.isComplete === true) ?? addStep(agent.spend, usage, cost, model)
-  const spend: AgentSpend = { ...totals, lastCacheHit: cacheHitRatio(usage) ?? agent.spend?.lastCacheHit }
+  const spend: AgentSpend = {
+    ...totals,
+    lastCacheHit: cacheHitRatio(usage) ?? agent.spend?.lastCacheHit,
+    inference: asSite(payload.inference) ?? agent.spend?.inference,
+  }
   const pulse: ModelStepPulse = {
     time: currentTime,
     outputTokens: usage.output_tokens,

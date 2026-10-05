@@ -56,6 +56,8 @@ interface HookPayload {
   step?: number
   /** How hard the request asked the model to think: `low` … `max`, or a number */
   effort?: string | number
+  /** Where the request ran (mod only): Anthropic's API, or Bedrock or Vertex and a region */
+  inference?: { platform: string; region?: string }
   stop_reason?: string | null
   /** What the whole session has cost, as /cost totals it, when the request ended */
   session_cost_usd?: number
@@ -533,6 +535,8 @@ export class HookServer implements vscode.Disposable {
         // A subagent's totals are whole when this server saw it start; the main agent's never are
         // known to be, so its exact figure comes from the session's cost less its subagents'
         isComplete: !!payload.agent_id,
+        // Where it ran: the grid the UI figures its footprint at
+        ...(payload.inference ? { inference: payload.inference } : {}),
         ...(typeof payload.session_cost_usd === 'number' ? { sessionCostUsd: payload.session_cost_usd } : {}),
       },
     }, payload.session_id)

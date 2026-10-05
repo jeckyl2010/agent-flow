@@ -6,13 +6,15 @@
  */
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { INFERENCE_ZONES } from '../web/lib/inference-zone'
 
 const REPO = 'mlco2/ecologits'
 const ref = process.argv[2] ?? 'main'
 const OUT = join(import.meta.dirname, '../web/lib/data/ecologits.json')
 
-/** Mixes kept: EcoLogits figures Anthropic in the USA; WOR is its calculator's default */
-const ZONES = ['USA', 'WOR']
+/** Mixes kept: EcoLogits figures Anthropic in the USA, WOR is its calculator's default, and the
+ *  rest are where Claude runs on Bedrock and Vertex (web/lib/inference-zone.ts) */
+const ZONES = INFERENCE_ZONES
 
 /** Anthropic's data centers, as EcoLogits' PROVIDER_CONFIG_MAP has them (ecologits/tracers/utils.py) */
 const PROVIDER = {

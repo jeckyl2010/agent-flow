@@ -52,6 +52,28 @@ const statuses = new Map<string, string>()
 let statusTimer: { cancel(): void } | undefined
 /** tool_use_id → the `ask` verdict its permission check returned, until the call ends */
 const asks = new Map<string, { tool: string; agentId?: string; reason?: string; rule?: string }>()
+/**
+ * How this session reaches Claude, as Claude Code's environment sets it up: Anthropic's API, or
+ * Amazon Bedrock, Google Vertex AI or Microsoft Foundry, and the region. The footprint is figured
+ * at that region's grid. Vertex's per-model region overrides (VERTEX_REGION_CLAUDE_*) aren't read:
+ * a name has to be spelled out to read it
+ */
+let inference: { platform: 'anthropic' | 'bedrock' | 'vertex' | 'foundry'; region?: string } = { platform: 'anthropic' }
+
+async function readInference($: EngineInterface): Promise<typeof inference> {
+  const on = (v: string | undefined) => !!v && v !== '0' && v.toLowerCase() !== 'false'
+  if (on(await $.env.get('CLAUDE_CODE_USE_BEDROCK'))) {
+    const region = await $.env.get('AWS_REGION') ?? await $.env.get('AWS_DEFAULT_REGION')
+    return { platform: 'bedrock', ...(region ? { region } : {}) }
+  }
+  if (on(await $.env.get('CLAUDE_CODE_USE_VERTEX'))) {
+    const region = await $.env.get('CLOUD_ML_REGION')
+    return { platform: 'vertex', ...(region ? { region } : {}) }
+  }
+  if (on(await $.env.get('CLAUDE_CODE_USE_FOUNDRY'))) return { platform: 'foundry' }
+  return { platform: 'anthropic' }
+}
+
 /** What /agent-flow reports */
 const stats = { sent: 0, failed: 0, dropped: 0, lastError: '' }
 
@@ -60,6 +82,7 @@ export const register: Register = on => {
     sessionId = await $.session.id()
     cwd = e.cwd
     realCwd = ''
+    inference = await readInference($).catch(() => ({ platform: 'anthropic' as const }))
     send($, { hook_event_name: 'SessionStart' })
     await $.command.register({ name: 'agent-flow', description: 'Shows where the Agent Flow bridge sends this session’s events.' })
     return next(e)
@@ -218,7 +241,7 @@ export const register: Register = on => {
           send($, {
             hook_event_name: 'ModelStep', ...agentFields(e.agentId),
             turn_id: e.turnId, step: e.index, model: chunk.usage?.model ?? e.model, effort: e.effort,
-            stop_reason: chunk.stopReason, usage: chunk.usage,
+            stop_reason: chunk.stopReason, usage: chunk.usage, inference,
           })
         }
         yield chunk

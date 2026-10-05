@@ -1,3 +1,5 @@
+import type { InferenceSite } from './inference-zone'
+
 // Agent Visualizer Types — Holographic Edition v2
 // Now with actual information visibility
 
@@ -83,6 +85,9 @@ export interface AgentSpend {
   lastCacheHit?: number
   /** Every request the agent made is counted: it was watched from its start */
   isComplete: boolean
+  /** Where its requests ran (Anthropic's API, or Bedrock or Vertex and a region), as the bridge
+   *  mod reads Claude Code's setup: the grid its footprint is figured at */
+  inference?: InferenceSite
 }
 
 export interface ModelOutput {
