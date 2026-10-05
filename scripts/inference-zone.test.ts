@@ -59,3 +59,18 @@ test('a chosen grid figures every request at it', () => {
   const chosen = sessionImpacts(new Map([['main', agent({ inference: { platform: 'bedrock', region: 'eu-north-1' } })]]), 'FRA')
   assert.deepEqual(chosen.grids, [{ zone: 'FRA', basis: 'chosen', outputTokens: 1000 }])
 })
+
+test("through a gateway the region is unknown: the world's grid, unless the request names its geography", () => {
+  assert.deepEqual(inferenceZone('claude-opus-5-5', { platform: 'anthropic', gateway: 'localhost:4000' }),
+    { zone: 'WOR', basis: 'via localhost:4000, region unknown' })
+  assert.deepEqual(inferenceZone('anthropic.claude-opus-4-7', { platform: 'bedrock', region: 'eu-north-1', gateway: 'llm.corp' }),
+    { zone: 'WOR', basis: 'via llm.corp, region unknown' })
+  assert.equal(inferenceZone('eu.anthropic.claude-opus-4-7', { platform: 'bedrock', gateway: 'llm.corp' }).zone, 'EEE')
+})
+
+test('the session names the gateways its requests went through', () => {
+  const via = sessionImpacts(new Map([['main', agent({ inference: { platform: 'anthropic', gateway: 'localhost:4000' } })]]))
+  assert.deepEqual(via.gateways, ['localhost:4000'])
+  assert.deepEqual(via.grids, [{ zone: 'WOR', basis: 'via localhost:4000, region unknown', outputTokens: 1000 }])
+  assert.deepEqual(sessionImpacts(new Map([['main', agent({})]])).gateways, [])
+})

@@ -10,6 +10,8 @@ export interface InferenceSite {
   platform: 'anthropic' | 'bedrock' | 'vertex' | 'foundry'
   /** The region the session is set up for: AWS_REGION, or Vertex's CLOUD_ML_REGION */
   region?: string
+  /** The host of a gateway the requests go through (LiteLLM, a company proxy), when they do */
+  gateway?: string
 }
 
 export interface InferenceZone {
@@ -68,6 +70,13 @@ function awsZone(region: string): string | undefined {
 export function inferenceZone(model: string | undefined, site: InferenceSite | undefined): InferenceZone {
   const id = (model ?? '').toLowerCase()
   const geo = /(?:^|\/)(us-gov|eu|us|ca|jp|au|apac|global)\.anthropic\./.exec(id)?.[1]
+  // Through a gateway, where it ran is the gateway's to say: the world's grid, as EcoLogits figures
+  // a request it can't place, unless the request names its geography itself
+  if (site?.gateway) {
+    return geo
+      ? { zone: BEDROCK_GEOGRAPHIES[geo], basis: `via ${site.gateway}, ${geo}.* (cross-region)` }
+      : { zone: 'WOR', basis: `via ${site.gateway}, region unknown` }
+  }
   if (site?.platform === 'bedrock' || geo || id.includes('arn:aws')) {
     if (geo) return { zone: BEDROCK_GEOGRAPHIES[geo], basis: `Bedrock ${geo}.* (cross-region)` }
     const region = /arn:aws[a-z-]*:bedrock:([a-z0-9-]+):/.exec(id)?.[1] ?? site?.region

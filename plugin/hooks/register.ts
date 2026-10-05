@@ -56,22 +56,42 @@ const asks = new Map<string, { tool: string; agentId?: string; reason?: string; 
  * How this session reaches Claude, as Claude Code's environment sets it up: Anthropic's API, or
  * Amazon Bedrock, Google Vertex AI or Microsoft Foundry, and the region. The footprint is figured
  * at that region's grid. Vertex's per-model region overrides (VERTEX_REGION_CLAUDE_*) aren't read:
- * a name has to be spelled out to read it
+ * a name has to be spelled out to read it.
+ *
+ * A base URL that isn't the platform's own is a gateway (LiteLLM, a company proxy): what answered,
+ * and where, is the gateway's to say. Only its host is sent
  */
-let inference: { platform: 'anthropic' | 'bedrock' | 'vertex' | 'foundry'; region?: string } = { platform: 'anthropic' }
+type Inference = { platform: 'anthropic' | 'bedrock' | 'vertex' | 'foundry'; region?: string; gateway?: string }
+let inference: Inference = { platform: 'anthropic' }
 
-async function readInference($: EngineInterface): Promise<typeof inference> {
+/** The host of a base URL that isn't the platform's own, or undefined */
+function gatewayHost(url: string | undefined, own: RegExp): string | undefined {
+  if (!url) return undefined
+  try {
+    const { host, hostname } = new URL(url)
+    return own.test(hostname) ? undefined : host
+  } catch {
+    return undefined
+  }
+}
+
+async function readInference($: EngineInterface): Promise<Inference> {
   const on = (v: string | undefined) => !!v && v !== '0' && v.toLowerCase() !== 'false'
+  const via = (gateway: string | undefined) => (gateway ? { gateway } : {})
   if (on(await $.env.get('CLAUDE_CODE_USE_BEDROCK'))) {
     const region = await $.env.get('AWS_REGION') ?? await $.env.get('AWS_DEFAULT_REGION')
-    return { platform: 'bedrock', ...(region ? { region } : {}) }
+    const gateway = gatewayHost(await $.env.get('ANTHROPIC_BEDROCK_BASE_URL'), /\.amazonaws\.com(\.cn)?$/)
+    return { platform: 'bedrock', ...(region ? { region } : {}), ...via(gateway) }
   }
   if (on(await $.env.get('CLAUDE_CODE_USE_VERTEX'))) {
     const region = await $.env.get('CLOUD_ML_REGION')
-    return { platform: 'vertex', ...(region ? { region } : {}) }
+    const gateway = gatewayHost(await $.env.get('ANTHROPIC_VERTEX_BASE_URL'), /(^|\.)googleapis\.com$/)
+    return { platform: 'vertex', ...(region ? { region } : {}), ...via(gateway) }
   }
-  if (on(await $.env.get('CLAUDE_CODE_USE_FOUNDRY'))) return { platform: 'foundry' }
-  return { platform: 'anthropic' }
+  if (on(await $.env.get('CLAUDE_CODE_USE_FOUNDRY'))) {
+    return { platform: 'foundry', ...via(gatewayHost(await $.env.get('ANTHROPIC_FOUNDRY_BASE_URL'), /\.azure\.com$/)) }
+  }
+  return { platform: 'anthropic', ...via(gatewayHost(await $.env.get('ANTHROPIC_BASE_URL'), /^api\.anthropic\.com$/)) }
 }
 
 /** What /agent-flow reports */

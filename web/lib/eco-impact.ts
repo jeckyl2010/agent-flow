@@ -172,6 +172,8 @@ export interface SessionImpacts {
   total: EcoImpacts
   /** The grids it was figured at, most output first */
   grids: GridShare[]
+  /** The gateways its requests went through (their hosts): the model and region are as asked */
+  gateways: string[]
   /** Output tokens counted: those of agents whose model EcoLogits estimates */
   outputTokens: number
   /** Agents whose requests were measured but whose model has no estimate (Codex, unknown models) */
@@ -189,6 +191,7 @@ export interface SessionImpacts {
 export function sessionImpacts(agents: Map<string, Agent>, zone?: string): SessionImpacts {
   const total = zeroImpacts()
   const grids = new Map<string, GridShare>()
+  const gateways = new Set<string>()
   let outputTokens = 0
   let uncountedAgents = 0
   let isPartial = false
@@ -198,6 +201,7 @@ export function sessionImpacts(agents: Map<string, Agent>, zone?: string): Sessi
       continue
     }
     if (!a.spend.isComplete) isPartial = true
+    if (a.spend.inference?.gateway) gateways.add(a.spend.inference.gateway)
     const parts = a.spend.byModel?.length
       ? a.spend.byModel
       : [{ model: a.modelTag?.model ?? a.model ?? '', output: a.spend.output, requests: a.spend.steps }]
@@ -223,7 +227,10 @@ export function sessionImpacts(agents: Map<string, Agent>, zone?: string): Sessi
     }
     if (!counted) uncountedAgents++
   }
-  return { total, grids: [...grids.values()].sort((x, y) => y.outputTokens - x.outputTokens), outputTokens, uncountedAgents, isPartial }
+  return {
+    total, grids: [...grids.values()].sort((x, y) => y.outputTokens - x.outputTokens),
+    gateways: [...gateways], outputTokens, uncountedAgents, isPartial,
+  }
 }
 
 /** Whether the data holds a zone's electricity mix */
