@@ -293,6 +293,9 @@ export const EcoMoons = memo(function EcoMoons({ impacts, layout, rightInset = 0
   const grid = gridLabel(impacts.grids)
   if (impacts.uncountedAgents > 0) notes.push(`${impacts.uncountedAgents} agent${impacts.uncountedAgents > 1 ? 's' : ''} on a model EcoLogits doesn’t cover left out.`)
   if (impacts.isPartial) notes.push('Some requests weren’t measured, so this is a floor.')
+  if (impacts.gateways.length > 0) {
+    notes.push(`Requests went through a gateway (${impacts.gateways.join(', ')}): the model and region are what Claude Code asked for, not necessarily what answered.`)
+  }
   const footnote = notes.join(' ')
 
   const width = viewport[0]

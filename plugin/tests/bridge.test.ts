@@ -118,6 +118,30 @@ test('a session on Amazon Bedrock reports its region with each request', async (
   expect(step).toEqual(expect.objectContaining({ inference: { platform: 'bedrock', region: 'eu-west-1' } }))
 })
 
+for (const [name, env, gateway] of [
+  ['a gateway in front of Anthropic is named by its host', { ANTHROPIC_BASE_URL: 'http://localhost:4000/v1?key=secret' }, 'localhost:4000'],
+  ['Anthropic’s own address is no gateway', { ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }, undefined],
+  ['a gateway in front of Bedrock is named, its region kept', { CLAUDE_CODE_USE_BEDROCK: '1', AWS_REGION: 'eu-west-1', ANTHROPIC_BEDROCK_BASE_URL: 'https://llm.corp.example' }, 'llm.corp.example'],
+] as const) {
+  test(name, async ($, on) => {
+    const { clock, posts } = agentFlow(on, env as Record<string, string>)
+    on('command.register', () => ({ value: undefined }) as never)
+    on('session.start', (_$, e) => ({ cwd: e.cwd }) as never)
+    const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    on('turn.step', async function* () {
+      yield { kind: 'stop', stopReason: 'end_turn', usage } as never
+      return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage }
+    })
+
+    await $.session.start({ cwd: `${WORKSPACE}/src` } as never)
+    for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 } as never)) { /* read it all */ }
+    await clock.settle()
+
+    const sent = posts.map(p => p.body).find(b => b.hook_event_name === 'ModelStep')!.inference as Record<string, unknown>
+    expect(sent.gateway).toBe(gateway)
+  })
+}
+
 test('a subagent started from a subagent names its parent', async ($, on) => {
   const { clock, posts } = agentFlow(on)
   on('agent.spawn', () => ({ model: 'claude-haiku-4-5', agentId: 'child-1' }))

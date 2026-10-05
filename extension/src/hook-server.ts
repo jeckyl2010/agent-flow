@@ -56,8 +56,9 @@ interface HookPayload {
   step?: number
   /** How hard the request asked the model to think: `low` … `max`, or a number */
   effort?: string | number
-  /** Where the request ran (mod only): Anthropic's API, or Bedrock or Vertex and a region */
-  inference?: { platform: string; region?: string }
+  /** Where the request ran (mod only): Anthropic's API, or Bedrock or Vertex and a region, and
+   *  the gateway's host when it went through one */
+  inference?: { platform: string; region?: string; gateway?: string }
   stop_reason?: string | null
   /** What the whole session has cost, as /cost totals it, when the request ended */
   session_cost_usd?: number

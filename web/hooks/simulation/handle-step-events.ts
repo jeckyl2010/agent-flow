@@ -23,9 +23,13 @@ function asUsage(v: unknown): StepUsage | undefined {
 /** Where the request ran, as the bridge mod reports it: `{ platform, region? }` */
 function asSite(v: unknown): InferenceSite | undefined {
   if (!v || typeof v !== 'object') return undefined
-  const { platform, region } = v as { platform?: unknown; region?: unknown }
+  const { platform, region, gateway } = v as { platform?: unknown; region?: unknown; gateway?: unknown }
   if (platform !== 'anthropic' && platform !== 'bedrock' && platform !== 'vertex' && platform !== 'foundry') return undefined
-  return { platform, ...(typeof region === 'string' && region ? { region } : {}) }
+  return {
+    platform,
+    ...(typeof region === 'string' && region ? { region } : {}),
+    ...(typeof gateway === 'string' && gateway ? { gateway } : {}),
+  }
 }
 
 /** The agent's usage so far as the relay totals it, per model: `{ steps, byModel: [{ model, ...usage }] }` */
