@@ -246,8 +246,6 @@ interface GridLabel {
   name: string
   /** Why: "Bedrock eu.* (cross-region)", "Anthropic API", "chosen" */
   basis: string
-  /** Under the moons: "EU AVERAGE GRID" */
-  short: string
 }
 
 /** The grid most of the session's output was figured at, named for the moons */
@@ -256,7 +254,7 @@ function gridLabel(grids: GridShare[]): GridLabel | undefined {
   if (!first) return undefined
   const more = grids.length > 1 ? ' and others' : ''
   const name = `${zoneName(first.zone)} grid`
-  return { name: `${name}${more}`, basis: first.basis === 'chosen' ? 'chosen for all requests' : first.basis, short: `${name}${grids.length > 1 ? ' +' : ''}`.toUpperCase() }
+  return { name: `${name}${more}`, basis: first.basis === 'chosen' ? 'chosen for all requests' : first.basis }
 }
 
 /** The space between moons, the same in the column and the row */
@@ -313,20 +311,6 @@ export const EcoMoons = memo(function EcoMoons({ impacts, layout, rightInset = 0
           </div>
         )
       })}
-      {/* Where it's figured, always in view: under the column, or under the row's middle */}
-      {grid && (
-        <div className="eco-flight absolute pointer-events-auto font-mono text-[8.5px] tracking-[0.18em] whitespace-nowrap text-center"
-          style={{
-            left: 0, top: 0, width: layout === 'column' ? SIZE + 20 : 200, color: COLORS.textMuted,
-            transform: layout === 'column'
-              ? `translate(${width - COLUMN_RIGHT - SIZE - rightInset - 10}px, ${COLUMN_TOP + n * (SIZE + GAP) - GAP + 14}px)`
-              : `translate(${rowLeft + (n * SIZE + (n - 1) * GAP) / 2 - 100}px, ${56 + SIZE + 34}px)`,
-            transition: 'transform 0.9s cubic-bezier(.65,0,.35,1)',
-          }}
-          title={`Electricity figured at the ${grid.name} · ${grid.basis}`}>
-          ⌖ {grid.short}
-        </div>
-      )}
     </div>
   )
 })
