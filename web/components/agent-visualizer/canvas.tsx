@@ -9,6 +9,8 @@ import { frameLimiter } from '@/lib/frame-limiter'
 import { activityTracker } from '@/lib/activity'
 import { BloomRenderer, canvasFilterBlurs } from './bloom-renderer'
 import { GlBloom } from './gl-bloom'
+import { Painter } from './gl/painter'
+import { GlContext2D } from './gl/context2d'
 import { createDepthParticles, updateDepthParticles, drawBackground } from './background-layer'
 import {
   type VisualEffect,
@@ -62,6 +64,15 @@ export function AgentCanvas({
   const simTimeRef = useRef(0)
   const bloomRef = useRef<Pick<BloomRenderer, 'resize' | 'apply'> | null>(null)
   const glBloomRef = useRef<GlBloom | null>(null)
+  /**
+   * Drawn on the GPU while anything happens: the view's draw code through a 2D context that paints
+   * with WebGL, on a canvas under the 2D one. At rest the 2D canvas draws instead: Safari redraws
+   * only the parts of it that change, where a WebGL canvas is redrawn whole, a full window a frame
+   */
+  const glRef = useRef<{ painter: Painter; ctx: GlContext2D; always: boolean } | null>(null)
+  const glCanvasRef = useRef<HTMLCanvasElement>(null)
+  /** Whether the last frame was the GPU's: its canvas showing, the 2D one clear over it */
+  const onGpuRef = useRef(false)
   const depthParticlesRef = useRef<DepthParticle[]>([])
   const lastFrameTimeRef = useRef(0)
   const dprRef = useRef(1)
@@ -132,6 +143,20 @@ export function AgentCanvas({
   // ─── Setup ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    // On the GPU where WebGL 2 is there, in 2D at rest: always in 2D when asked for (?main=2d),
+    // always on the GPU (?main=gpu)
+    const mode = new URLSearchParams(window.location.search).get('main')
+    const glCanvas = glCanvasRef.current
+    if (glCanvas && mode !== '2d') {
+      const painter = new Painter(glCanvas)
+      if (painter.ok) {
+        glRef.current = { painter, ctx: new GlContext2D(glCanvas, painter, () => dprRef.current), always: mode === 'gpu' }
+        // At rest, in 2D, with the 2D bloom: the GPU's is the frame's own
+        bloomRef.current = new BloomRenderer(0.5)
+        depthParticlesRef.current = createDepthParticles(dimensions.width, dimensions.height)
+        return () => { painter.dispose(); glRef.current = null; bloomRef.current = null }
+      }
+    }
     // On the GPU, laid over the canvas, where the canvas blurs with filters: there the 2D bloom
     // is the most of the frame's GPU time. Safari's canvas doesn't, and its 2D bloom (shrinking
     // and enlarging) is cheap, cheaper than blending an overlay as it composites the page
@@ -206,6 +231,13 @@ export function AgentCanvas({
     }
   }, [])
 
+  /** How fast the view's own motion runs: all of it while something happens, slowing to a third
+   *  once it's calm, and fewer frames only when it has, so the motion never steps */
+  const paceRef = useRef(1)
+  const restPace = FRAME_RATE.rest / 30
+  const frameRate = (active: boolean) =>
+    active ? FRAME_RATE.active : paceRef.current < restPace * 1.05 ? FRAME_RATE.rest : FRAME_RATE.ambient
+
   const isActive = useCallback((timestamp: number): boolean => {
     const s = simulationRef.current
     return activityRef.current.active(timestamp, {
@@ -221,12 +253,17 @@ export function AgentCanvas({
     animationRef.current = requestAnimationFrame((ts) => drawRef.current(ts))
 
     if (drawPropsRef.current.paused) return
-    if (!limiterRef.current(timestamp, isActive(timestamp) ? FRAME_RATE.active : FRAME_RATE.ambient)) return
+    const active = isActive(timestamp)
+    if (!limiterRef.current(timestamp, frameRate(active))) return
 
     const canvas = mainCanvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    const ctx2d = canvas.getContext('2d')
+    if (!ctx2d) return
+    // On the GPU unless settled at rest, the calm rate's frames
+    const gpu = glRef.current
+    const gl = gpu && (gpu.always || active || paceRef.current >= restPace * 1.05) ? gpu : null
+    const ctx = gl ? (gl.ctx as unknown as CanvasRenderingContext2D) : ctx2d
 
     try {
       // Sync simulation data from ref — always fresh, independent of React renders
@@ -256,14 +293,21 @@ export function AgentCanvas({
         ? Math.min((timestamp - lastFrameTimeRef.current) / 1000, ANIM_SPEED.maxDeltaTime)
         : ANIM_SPEED.defaultDeltaTime
       lastFrameTimeRef.current = timestamp
-      timeRef.current += deltaTime
+      // Waking is quick, so what woke it plays at its speed; settling is slow, so it isn't noticed
+      const target = active ? 1 : restPace
+      paceRef.current += (target - paceRef.current) * (1 - Math.exp(-(deltaTime * 1000) / (target > paceRef.current ? 250 : 1500)))
+      const motion = deltaTime * paceRef.current
+      timeRef.current += motion
       if (simTime != null) simTimeRef.current = simTime
 
       const dpr = dprRef.current
       const w = dimensions.width
       const h = dimensions.height
 
-      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      if (gl) {
+        gl.painter.begin(w, h, dpr)
+        gl.ctx.reset()
+      } else if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
         canvas.width = w * dpr
         canvas.height = h * dpr
         ctx.scale(dpr, dpr)
@@ -293,7 +337,7 @@ export function AgentCanvas({
       }
 
       ctx.clearRect(0, 0, w, h)
-      updateDepthParticles(depthParticlesRef.current, deltaTime, w, h)
+      updateDepthParticles(depthParticlesRef.current, motion, w, h)
 
       let activeAgentPos: { x: number; y: number; color: string } | undefined
       for (const [, agent] of agents) {
@@ -342,7 +386,7 @@ export function AgentCanvas({
       ctx.restore()
 
       if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls)
-      if (bloomRef.current) bloomRef.current.apply(canvas, ctx)
+      if (!gl && bloomRef.current) bloomRef.current.apply(canvas, ctx)
 
       // ─── Performance overlay (enabled via ?perf or ?stress) ──────────
       if (PERF_OVERLAY_ENABLED) {
@@ -379,6 +423,22 @@ export function AgentCanvas({
         ctx.restore()
       }
 
+      // On the GPU, the frame is sent now, its bloom with it, at the 2D bloom's strength
+      if (gl) gl.painter.end(0.5)
+
+      // Changing canvases: the new one's frame is drawn first, so there's no frame of neither
+      if (gl && !onGpuRef.current) {
+        glCanvasRef.current!.style.visibility = ''
+        ctx2d.save()
+        ctx2d.setTransform(1, 0, 0, 1, 0, 0)
+        ctx2d.clearRect(0, 0, canvas.width, canvas.height)
+        ctx2d.restore()
+        onGpuRef.current = true
+      } else if (!gl && onGpuRef.current) {
+        glCanvasRef.current!.style.visibility = 'hidden'
+        onGpuRef.current = false
+      }
+
     } catch (err) {
       // Log at most once every 5s to avoid flooding the console
       const now = Date.now()
@@ -400,11 +460,13 @@ export function AgentCanvas({
 
   return (
     <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
+      <canvas ref={glCanvasRef} aria-hidden className="absolute inset-0 w-full h-full pointer-events-none" style={{ visibility: 'hidden' }} />
       <canvas
         ref={mainCanvasRef}
         style={{ width: dimensions.width, height: dimensions.height }}
         {...handlers}
-        className="w-full h-full"
+        // Over the GPU's canvas: positioned, as it is
+        className="relative w-full h-full"
       />
     </div>
   )

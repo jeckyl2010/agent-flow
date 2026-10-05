@@ -9,7 +9,7 @@ const SIGMA = 5.4
 /** The bloom's resolution, against the frame's */
 const SCALE = 0.25
 
-const VERTEX = `#version 300 es
+export const VERTEX = `#version 300 es
 in vec2 pos;
 out vec2 uv;
 void main() { uv = pos * 0.5 + 0.5; gl_Position = vec4(pos, 0.0, 1.0); }`
@@ -27,7 +27,7 @@ void main() {
 }`
 
 /** One direction of a Gaussian, two weights to a tap: bilinear sampling blends the pair */
-function blurShader(): string {
+export function blurShader(): string {
   const radius = Math.ceil(SIGMA * 3)
   const w = Array.from({ length: radius + 1 }, (_, i) => Math.exp(-(i * i) / (2 * SIGMA * SIGMA)))
   const total = w[0] + 2 * w.slice(1).reduce((a, b) => a + b, 0)

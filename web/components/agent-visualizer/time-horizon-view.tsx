@@ -14,6 +14,7 @@ import { sessionCosts } from '@/lib/session-costs'
 import { cachedPromptCost } from '@/lib/model-pricing'
 import { sessionImpacts, midpoint, formatImpact } from '@/lib/eco-impact'
 import { createScene, shipColor, KIND_COLOR, type Hover, type Scene, type SceneInput } from './time-horizon-scene'
+import { createGlScene, type Backdrop, type GlScene } from './time-horizon/gl/scene'
 
 const KIND_STYLE: Record<TimeKind, { label: string; about: string }> = {
   thinking: { label: 'Thinking', about: 'The model reasoning and writing' },
@@ -21,6 +22,18 @@ const KIND_STYLE: Record<TimeKind, { label: string; about: string }> = {
   subagents: { label: 'Subagents', about: 'Waiting on subagents it sent out' },
   permission: { label: 'Permission', about: 'A permission dialog waiting for you' },
   waiting: { label: 'Waiting for you', about: 'Between turns: your move' },
+}
+
+/**
+ * The view's backdrop, `radial-gradient(ellipse at 42% 52%, …)` over the whole view, placed in the
+ * canvas's pixels: its center, and radii through the farthest corner (CSS's default size), keeping
+ * the aspect of the farthest sides. By layout offsets, which the view's entrance doesn't move
+ */
+function backdropIn(canvas: HTMLElement, root: HTMLElement): Backdrop {
+  let x = 0, y = 0
+  for (let el: HTMLElement | null = canvas; el && el !== root; el = el.offsetParent as HTMLElement | null) { x += el.offsetLeft; y += el.offsetTop }
+  const W = root.clientWidth, H = root.clientHeight
+  return { cx: W * 0.42 - x, cy: H * 0.52 - y, rx: Math.SQRT2 * W * 0.58, ry: Math.SQRT2 * H * 0.52 }
 }
 
 /** A card's place on the canvas: the point it opens beside, and the canvas's size when it opened */
@@ -31,7 +44,8 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const inputRef = useRef(input)
   inputRef.current = input
-  const sceneRef = useRef<Scene | null>(null)
+  /** The scene's hit tests and pointer, whichever renderer draws it */
+  const sceneRef = useRef<Omit<Scene, 'draw'> | null>(null)
   const [hover, setHover] = useState<Hover | undefined>()
   const [overHole, setOverHole] = useState(false)
   /** Where the insights card opens, beside the hole; closed when undefined */
@@ -48,6 +62,8 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
 
   // Escape closes a card before it closes the view
   const cardOpen = !!insightsAt || !!promptCard || !!shipCard
+  const cardOpenRef = useRef(cardOpen)
+  cardOpenRef.current = cardOpen
   useEffect(() => {
     if (!cardOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -64,27 +80,44 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const ctx = canvas?.getContext('2d')
-    if (!canvas || !ctx) return
+    if (!canvas) return
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const scene = createScene(reduced)
+    // On the GPU where WebGL 2 is there; the 2D scene otherwise, or when asked for (?horizon=2d)
+    const gl = new URLSearchParams(window.location.search).get('horizon') === '2d' ? undefined : createGlScene(canvas, reduced)
+    const ctx = gl ? null : canvas.getContext('2d')
+    if (!gl && !ctx) return
+    const scene: Scene | GlScene = gl ?? createScene(reduced)
     sceneRef.current = scene
     let raf = 0
     const limit = frameLimiter()
+    /** The view's backdrop, in the canvas's pixels: the GL canvas is opaque, so it draws it too */
+    let backdrop: Backdrop | undefined
+    let sized = ''
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame)
-      if (!limit(now, FRAME_RATE.horizon)) return
+      // A card open over the scene is something being read: the scene stays awake under it
+      if (gl && cardOpenRef.current) gl.engage(1000)
+      if (!limit(now, gl ? gl.frameRate() : FRAME_RATE.horizon)) return
       const dpr = window.devicePixelRatio || 1
       const { clientWidth: w, clientHeight: h } = canvas
+      if (gl) {
+        const root = canvas.closest<HTMLElement>('[data-horizon-root]')
+        if (root && sized !== `${w}|${h}|${root.clientWidth}|${root.clientHeight}`) {
+          sized = `${w}|${h}|${root.clientWidth}|${root.clientHeight}`
+          backdrop = backdropIn(canvas, root)
+        }
+        gl.draw(inputRef.current, now, w, h, dpr, backdrop)
+        return
+      }
       if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
         canvas.width = Math.round(w * dpr)
         canvas.height = Math.round(h * dpr)
       }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      scene.draw(ctx, inputRef.current, now, w, h)
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ;(scene as Scene).draw(ctx!, inputRef.current, now, w, h)
     }
     raf = requestAnimationFrame(frame)
-    return () => cancelAnimationFrame(raf)
+    return () => { cancelAnimationFrame(raf); gl?.dispose() }
   }, [])
 
   const onMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -131,7 +164,7 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
   const promptIndex = promptCard ? h.turnLog.findIndex(t => t.start === promptCard.start) : -1
   const shipIndex = shipCard ? h.subagents.findIndex(run => runKey(run) === shipCard.key) : -1
   return (
-    <div className="relative w-full h-full">
+    <div data-horizon-canvas className="relative w-full h-full">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ cursor: hover || overHole || overHex || overShip ? 'pointer' : 'default' }}
         onMouseMove={onMove} onClick={onClick}
         onMouseLeave={() => {
@@ -414,7 +447,7 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
   }
 
   return (
-    <div className="absolute inset-0 th-enter" style={{ zIndex: Z.horizon, background: `radial-gradient(ellipse at 42% 52%, #120c18 0%, #07071a 45%, ${COLORS.void} 80%)` }}
+    <div data-horizon-root className="absolute inset-0 th-enter" style={{ zIndex: Z.horizon, background: `radial-gradient(ellipse at 42% 52%, #120c18 0%, #07071a 45%, ${COLORS.void} 80%)` }}
       onClick={e => e.stopPropagation()}>
       <div className="absolute" style={{ left: 0, right: 330, top: 44, bottom: 80 }}>
         <HorizonCanvas input={sceneInput} agents={agents} />

@@ -4,6 +4,10 @@
 
 const glowSpriteCache = new Map<string, HTMLCanvasElement>()
 
+/** What each glow sprite is: the GPU context draws the gradient itself, rather than the picture of it */
+export interface GlowSpec { color: string; inner: number; outer: number; innerAlpha: string; outerAlpha: string }
+export const glowSpecs = new WeakMap<HTMLCanvasElement, GlowSpec>()
+
 /** Simple radial glow: gradient from center (innerAlpha) to edge (outerAlpha) */
 export function getGlowSprite(
   color: string, radius: number, innerAlpha: string, outerAlpha: string,
@@ -25,6 +29,7 @@ export function getGlowSprite(
   ctx.fillRect(0, 0, size, size)
 
   glowSpriteCache.set(key, sprite)
+  glowSpecs.set(sprite, { color, inner: 0, outer: rQ, innerAlpha, outerAlpha })
   return sprite
 }
 
@@ -50,6 +55,7 @@ export function getAgentGlowSprite(
   ctx.fillRect(0, 0, size, size)
 
   glowSpriteCache.set(key, sprite)
+  glowSpecs.set(sprite, { color, inner: iR, outer: oR, innerAlpha: glowAlphaHex, outerAlpha: '00' })
   return sprite
 }
 
