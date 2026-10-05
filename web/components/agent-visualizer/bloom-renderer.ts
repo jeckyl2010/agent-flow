@@ -76,6 +76,9 @@ export class BloomRenderer {
 
     // Composite bloom over the target with additive blending
     targetCtx.save()
+    // In the canvas's own pixels: the target is scaled to CSS pixels, and drawn through that, the
+    // bloom came out twice its size, a second blurred scene down and to the right
+    targetCtx.setTransform(1, 0, 0, 1, 0, 0)
     targetCtx.imageSmoothingEnabled = true
     targetCtx.imageSmoothingQuality = 'high'
     targetCtx.globalCompositeOperation = 'lighter'

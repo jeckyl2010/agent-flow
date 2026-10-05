@@ -25,7 +25,7 @@ import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar } from "./top-bar"
 import { sessionCosts } from "@/lib/session-costs"
-import { sessionImpacts } from "@/lib/eco-impact"
+import { chosenGrid, sessionImpacts } from "@/lib/eco-impact"
 import { EcoMoons } from "./eco-moons"
 import { TimeHorizonView } from "./time-horizon-view"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
@@ -223,7 +223,7 @@ export function AgentVisualizer() {
     return { totalTokens: tokens, totalCost: total.cost, isCostEstimate: !total.isExact }
   }, [agents])
 
-  const ecoImpacts = useMemo(() => sessionImpacts(agents), [agents])
+  const ecoImpacts = useMemo(() => sessionImpacts(agents, chosenGrid()), [agents])
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   const selectedConversation = selection.selectedAgentId ? (conversations.get(selection.selectedAgentId) || []) : []
@@ -276,7 +276,7 @@ export function AgentVisualizer() {
 
   return (
     <OpenFileProvider value={bridge.isVSCode ? openFile : null}>
-    <div className="h-screen w-screen relative overflow-hidden" style={{ background: COLORS.void }}>
+    <div className="h-screen w-screen relative overflow-hidden" style={{ background: COLORS.void }} data-horizon-open={showHorizon || undefined}>
       {/* Empty state when no demo and no live data */}
       {isEmpty && (
         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">

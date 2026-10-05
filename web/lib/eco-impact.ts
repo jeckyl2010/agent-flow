@@ -8,6 +8,7 @@
  * The data (web/lib/data/ecologits.json) is refreshed by scripts/update-ecologits-data.ts.
  */
 import type { Agent } from './agent-types'
+import { inferenceZone } from './inference-zone'
 import data from './data/ecologits.json'
 
 export interface Range {
@@ -164,8 +165,13 @@ export function midpoint(r: Range): number {
   return (r.min + r.max) / 2
 }
 
+/** A grid the session's requests were figured at, and the output tokens figured at it */
+export interface GridShare { zone: string; basis: string; outputTokens: number }
+
 export interface SessionImpacts {
   total: EcoImpacts
+  /** The grids it was figured at, most output first */
+  grids: GridShare[]
   /** Output tokens counted: those of agents whose model EcoLogits estimates */
   outputTokens: number
   /** Agents whose requests were measured but whose model has no estimate (Codex, unknown models) */
@@ -177,10 +183,12 @@ export interface SessionImpacts {
 /**
  * The session's impacts, from each agent's measured requests: per model where the usage says how
  * it split (an agent can switch models), otherwise all at its latest model. Agents without
- * measured usage add nothing.
+ * measured usage add nothing. Each part is figured at the grid where it ran (Anthropic's API in
+ * the USA, Bedrock or Vertex in their region), or at `zone` for all of them when one is chosen.
  */
-export function sessionImpacts(agents: Map<string, Agent>, zone = DEFAULT_ZONE): SessionImpacts {
+export function sessionImpacts(agents: Map<string, Agent>, zone?: string): SessionImpacts {
   const total = zeroImpacts()
+  const grids = new Map<string, GridShare>()
   let outputTokens = 0
   let uncountedAgents = 0
   let isPartial = false
@@ -195,10 +203,19 @@ export function sessionImpacts(agents: Map<string, Agent>, zone = DEFAULT_ZONE):
       : [{ model: a.modelTag?.model ?? a.model ?? '', output: a.spend.output, requests: a.spend.steps }]
     let counted = false
     for (const part of parts) {
-      const impacts = llmImpacts(part.model, part.output, part.requests, zone)
+      const site = zone && hasMix(zone)
+        ? { zone, basis: 'chosen' }
+        : inferenceZone(part.model, a.spend.inference)
+      // A grid the data doesn't hold: the USA's, as EcoLogits figures Anthropic
+      const at = hasMix(site.zone) ? site : { zone: DEFAULT_ZONE, basis: `${site.basis}, no data for ${site.zone}` }
+      const impacts = llmImpacts(part.model, part.output, part.requests, at.zone)
       if (!impacts) continue
       counted = true
       outputTokens += part.output
+      const key = `${at.zone}|${at.basis}`
+      const share = grids.get(key) ?? { zone: at.zone, basis: at.basis, outputTokens: 0 }
+      share.outputTokens += part.output
+      grids.set(key, share)
       for (const k of IMPACT_KINDS) {
         total[k].min += impacts[k].min
         total[k].max += impacts[k].max
@@ -206,7 +223,35 @@ export function sessionImpacts(agents: Map<string, Agent>, zone = DEFAULT_ZONE):
     }
     if (!counted) uncountedAgents++
   }
-  return { total, outputTokens, uncountedAgents, isPartial }
+  return { total, grids: [...grids.values()].sort((x, y) => y.outputTokens - x.outputTokens), outputTokens, uncountedAgents, isPartial }
+}
+
+/** Whether the data holds a zone's electricity mix */
+export function hasMix(zone: string): boolean {
+  return MIXES.some(m => m.name === zone)
+}
+
+/**
+ * A grid chosen for every request in place of where they ran: `?grid=EEE` in the URL, or kept as
+ * `agent-flow.grid` in this browser's storage. Undefined when none is, or the data has no such grid
+ */
+export function chosenGrid(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+  let grid = new URLSearchParams(window.location.search).get('grid') ?? undefined
+  try {
+    if (grid) window.localStorage.setItem('agent-flow.grid', grid)
+    else grid = window.localStorage.getItem('agent-flow.grid') ?? undefined
+  } catch { /* no storage: the URL's alone */ }
+  if (grid === 'auto') {
+    try { window.localStorage.removeItem('agent-flow.grid') } catch { /* nothing kept */ }
+    return undefined
+  }
+  return grid && hasMix(grid.toUpperCase()) ? grid.toUpperCase() : undefined
+}
+
+/** The zones the data holds, for choosing one */
+export function mixZones(): string[] {
+  return MIXES.map(m => m.name)
 }
 
 // ─── Display ────────────────────────────────────────────────────────────────

@@ -102,8 +102,14 @@ export const FRAME_RATE = {
   active: 60,
   /** The calm rate: drifting looks the same at 15 frames a second, at a quarter of the cost */
   ambient: 15,
+  /** Settled calm: the main view's motion slowed to a third, so it steps no further a frame at 10
+   *  than it would at 30 */
+  rest: 10,
   /** The time horizon: its gas and stars move smoothly at 30 */
   horizon: 30,
+  /** The time horizon at rest, waiting for you: its motion slowed to a third, so it steps no
+   *  further a frame at 10 than it does at 30 */
+  horizonCalm: 10,
 }
 
 export const ANIM_SPEED = {

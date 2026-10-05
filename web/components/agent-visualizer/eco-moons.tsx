@@ -5,8 +5,9 @@ import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import {
   formatImpact, impactEquivalent, midpoint,
-  type ImpactKind, type Range, type SessionImpacts,
+  type GridShare, type ImpactKind, type Range, type SessionImpacts,
 } from '@/lib/eco-impact'
+import { zoneName } from '@/lib/inference-zone'
 
 const SIZE = 64
 const RING_R = SIZE / 2 + 5
@@ -108,8 +109,8 @@ let nextDeltaId = 0
 /** Down the top right of the main view, or across the top over the time horizon's black hole */
 type MoonLayout = 'column' | 'row'
 
-function Moon({ spec, range, index, footnote, layout }: {
-  spec: MoonSpec; range: Range; index: number; footnote: string; layout: MoonLayout
+function Moon({ spec, range, index, footnote, grid, layout }: {
+  spec: MoonSpec; range: Range; index: number; footnote: string; grid?: GridLabel; layout: MoonLayout
 }) {
   const target = midpoint(range)
   const shown = useTweened(target)
@@ -225,6 +226,11 @@ function Moon({ spec, range, index, footnote, layout }: {
             range {lo.value} {lo.unit} – {hi.value} {hi.unit}
           </div>
           {equivalent && <div className="mt-1 text-[9px]" style={{ color: COLORS.textPrimary }}>{equivalent}</div>}
+          {grid && (
+            <div className="mt-1.5 text-[9px] leading-snug" style={{ color: COLORS.textPrimary }}>
+              <span style={{ color: c }}>⌖</span> {grid.name} · <span style={{ color: COLORS.textDim }}>{grid.basis}</span>
+            </div>
+          )}
           <div className="mt-2 text-[9px] leading-snug" style={{ color: COLORS.textDim }}>{spec.about}</div>
           <div className="mt-2 pt-2 text-[8.5px] leading-snug" style={{ color: COLORS.textMuted, borderTop: `1px solid ${COLORS.holoBorder08}` }}>
             {footnote}
@@ -233,6 +239,24 @@ function Moon({ spec, range, index, footnote, layout }: {
       )}
     </div>
   )
+}
+
+interface GridLabel {
+  /** "EU average grid", or "Swedish grid and others" when requests ran in more than one place */
+  name: string
+  /** Why: "Bedrock eu.* (cross-region)", "Anthropic API", "chosen" */
+  basis: string
+  /** Under the moons: "EU AVERAGE GRID" */
+  short: string
+}
+
+/** The grid most of the session's output was figured at, named for the moons */
+function gridLabel(grids: GridShare[]): GridLabel | undefined {
+  const [first] = grids
+  if (!first) return undefined
+  const more = grids.length > 1 ? ' and others' : ''
+  const name = `${zoneName(first.zone)} grid`
+  return { name: `${name}${more}`, basis: first.basis === 'chosen' ? 'chosen for all requests' : first.basis, short: `${name}${grids.length > 1 ? ' +' : ''}`.toUpperCase() }
 }
 
 /** The space between moons, the same in the column and the row */
@@ -267,6 +291,8 @@ export const EcoMoons = memo(function EcoMoons({ impacts, layout, rightInset = 0
   if (impacts.outputTokens === 0 || !viewport) return null
 
   const notes = ['EcoLogits estimate from output tokens only: input and cache reads are not counted. Model sizes are estimated, hence the range.']
+  // The grid the electricity was figured at: where the requests ran, or the one chosen
+  const grid = gridLabel(impacts.grids)
   if (impacts.uncountedAgents > 0) notes.push(`${impacts.uncountedAgents} agent${impacts.uncountedAgents > 1 ? 's' : ''} on a model EcoLogits doesn’t cover left out.`)
   if (impacts.isPartial) notes.push('Some requests weren’t measured, so this is a floor.')
   const footnote = notes.join(' ')
@@ -283,10 +309,24 @@ export const EcoMoons = memo(function EcoMoons({ impacts, layout, rightInset = 0
         return (
           <div key={spec.kind} className="eco-flight absolute pointer-events-auto"
             style={{ left: 0, top: 0, transform: `translate(${x}px, ${y}px)`, transition: `transform 0.9s cubic-bezier(.65,0,.35,1) ${i * 0.07}s` }}>
-            <Moon spec={spec} range={impacts.total[spec.kind]} index={i} footnote={footnote} layout={layout} />
+            <Moon spec={spec} range={impacts.total[spec.kind]} index={i} footnote={footnote} grid={grid} layout={layout} />
           </div>
         )
       })}
+      {/* Where it's figured, always in view: under the column, or under the row's middle */}
+      {grid && (
+        <div className="eco-flight absolute pointer-events-auto font-mono text-[8.5px] tracking-[0.18em] whitespace-nowrap text-center"
+          style={{
+            left: 0, top: 0, width: layout === 'column' ? SIZE + 20 : 200, color: COLORS.textMuted,
+            transform: layout === 'column'
+              ? `translate(${width - COLUMN_RIGHT - SIZE - rightInset - 10}px, ${COLUMN_TOP + n * (SIZE + GAP) - GAP + 14}px)`
+              : `translate(${rowLeft + (n * SIZE + (n - 1) * GAP) / 2 - 100}px, ${56 + SIZE + 34}px)`,
+            transition: 'transform 0.9s cubic-bezier(.65,0,.35,1)',
+          }}
+          title={`Electricity figured at the ${grid.name} · ${grid.basis}`}>
+          ⌖ {grid.short}
+        </div>
+      )}
     </div>
   )
 })

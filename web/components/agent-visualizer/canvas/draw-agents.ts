@@ -6,16 +6,23 @@ import {
 import { alphaHex, formatTokens } from '@/lib/utils'
 import { truncateText, drawHexagon, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
 import { getAgentGlowSprite } from './render-cache'
+import { pathBounds } from '../gl/path-bounds'
 
 let _claudeSparkPath: Path2D | null = null
 export function getClaudeSparkPath() {
-  if (!_claudeSparkPath) _claudeSparkPath = new Path2D(CLAUDE_SPARK_D)
+  if (!_claudeSparkPath) {
+    _claudeSparkPath = new Path2D(CLAUDE_SPARK_D)
+    pathBounds.set(_claudeSparkPath, [0, 0, AGENT_DRAW.sparkViewBox * 2, AGENT_DRAW.sparkViewBox * 2])
+  }
   return _claudeSparkPath
 }
 
 let _openaiLogoPath: Path2D | null = null
 function getOpenAILogoPath() {
-  if (!_openaiLogoPath) _openaiLogoPath = new Path2D(OPENAI_LOGO_D)
+  if (!_openaiLogoPath) {
+    _openaiLogoPath = new Path2D(OPENAI_LOGO_D)
+    pathBounds.set(_openaiLogoPath, [0, 0, OPENAI_LOGO_VIEWBOX, OPENAI_LOGO_VIEWBOX])
+  }
   return _openaiLogoPath
 }
 

@@ -4,9 +4,9 @@ import { expect, mock, test } from 'claude-code/testing'
 const WORKSPACE = '/work/app'
 
 /** One Agent Flow watching WORKSPACE (port 4001) and one elsewhere (4002); answers what flush and discovery call */
-function agentFlow(on: On) {
+function agentFlow(on: On, env: Record<string, string> = {}) {
   const clock = mock.clock(on)
-  mock.env(on, { HOME: '/home/me' })
+  mock.env(on, { HOME: '/home/me', ...env })
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: `${WORKSPACE}/src` }))
   on('fs.stat', () => ({ value: { kind: 'dir', size: 0, mtimeMs: 0, realPath: `${WORKSPACE}/src` } as never }))
@@ -98,6 +98,24 @@ test('a streamed answer is sent as it grows, then whole, then the request’s us
   expect(outputs.at(-1)).toEqual(expect.objectContaining({ stream_id: 't1:0:0', role: 'assistant', content: 'Hello', is_final: true }))
   expect(outputs.every(o => o.stream_id === 't1:0:0')).toBe(true)
   expect(posts.at(-1)!.body).toEqual(expect.objectContaining({ hook_event_name: 'ModelStep', model: 'claude-opus-5-5', effort: 'high', usage, session_cost_usd: 1.25 }))
+})
+
+test('a session on Amazon Bedrock reports its region with each request', async ($, on) => {
+  const { clock, posts } = agentFlow(on, { CLAUDE_CODE_USE_BEDROCK: '1', AWS_REGION: 'eu-west-1' })
+  on('command.register', () => ({ value: undefined }) as never)
+  on('session.start', (_$, e) => ({ cwd: e.cwd }) as never)
+  const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  on('turn.step', async function* () {
+    yield { kind: 'stop', stopReason: 'end_turn', usage } as never
+    return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage }
+  })
+
+  await $.session.start({ cwd: `${WORKSPACE}/src` } as never)
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'eu.anthropic.claude-opus-4-7', messageCount: 1 } as never)) { /* read it all */ }
+  await clock.settle()
+
+  const step = posts.map(p => p.body).find(b => b.hook_event_name === 'ModelStep')
+  expect(step).toEqual(expect.objectContaining({ inference: { platform: 'bedrock', region: 'eu-west-1' } }))
 })
 
 test('a subagent started from a subagent names its parent', async ($, on) => {

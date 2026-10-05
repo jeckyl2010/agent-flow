@@ -137,6 +137,19 @@
     inset 0 1px 0 rgba(100, 200, 255, 0.08);
 }
 
+/* Over the time horizon, glass shows only its still, dark backdrop, which blurs to itself. But a
+   backdrop blur is redone whenever anything near it changes, and the horizon's canvas changes 30
+   times a second: in Safari that re-blurring cost more than the scene itself */
+[data-horizon-open] .glass-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* Cards over the scene itself keep theirs: what's under them moves, and only while they're open */
+[data-horizon-open] [data-horizon-canvas] .glass-card {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
 .glass-card::before {
   content: '';
   position: absolute;
