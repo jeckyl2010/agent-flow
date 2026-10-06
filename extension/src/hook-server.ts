@@ -3,7 +3,7 @@ import * as vscode from 'vscode'
 import { AgentEvent, emitSubagentSpawn, type ModelUsage, type UsageTotals } from './protocol'
 import { addUsage, oneHourWrites, totalsPayload } from './transcript-usage'
 import {
-  ORCHESTRATOR_NAME, PREVIEW_MAX, RESULT_MAX, MESSAGE_MAX, resolveSubagentChildName,
+  ORCHESTRATOR_NAME, PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX, resolveSubagentChildName,
   SESSION_ID_DISPLAY, FAILED_RESULT_MAX, HOOK_MAX_BODY_SIZE,
   SUBAGENT_ID_SUFFIX_LENGTH, HOOK_SERVER_HOST, HOOK_SERVER_NOT_STARTED,
   generateSubagentFallbackName,
@@ -44,6 +44,9 @@ interface HookPayload {
   agent_type?: string
   agent_transcript_path?: string
   // PermissionRequest carries tool_name and tool_input, as PreToolUse does
+  /** The most permissive verdict the organization lets the tool reach (mod only): `ask` when its
+   *  administrators require an approval */
+  ceiling?: string
   // Notification
   notification_type?: string
   message?: string
@@ -73,6 +76,8 @@ interface HookPayload {
   /** A teammate (agent teams), and its name in the team */
   is_teammate?: boolean
   agent_name?: string
+  /** SubagentStop (mod only): the report the subagent handed back */
+  answer?: string
   // AgentStatus (mod only): an agent's state as `$.agent.list()` gives it: running, idle, waiting...
   status?: string
   // Generic
@@ -428,7 +433,8 @@ export class HookServer implements vscode.Disposable {
     this.emit({
       time: this.elapsedSeconds(payload.session_id),
       type: 'subagent_return',
-      payload: { child: childName, parent: parentName, summary: `${payload.agent_type} complete` },
+      // The report it handed back, as the transcript parser shows a subagent's result
+      payload: { child: childName, parent: parentName, summary: payload.answer?.slice(0, ARGS_MAX) || `${payload.agent_type} complete` },
     }, payload.session_id)
 
     this.emit({
@@ -451,8 +457,8 @@ export class HookServer implements vscode.Disposable {
         agent: this.resolveAgentName(payload),
         tool: toolName,
         args,
-        message: `${toolName}: ${args}`.slice(0, PREVIEW_MAX),
-        title: 'Permission needed',
+        message: `${payload.ceiling === 'ask' ? '[org approval] ' : ''}${toolName}: ${args}`.slice(0, PREVIEW_MAX),
+        title: payload.ceiling === 'ask' ? 'Your organization requires approval' : 'Permission needed',
       },
     }, payload.session_id)
   }
