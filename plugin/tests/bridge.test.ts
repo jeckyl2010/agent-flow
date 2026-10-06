@@ -104,7 +104,7 @@ test('a session on Amazon Bedrock reports its region with each request', async (
   const { clock, posts } = agentFlow(on, { CLAUDE_CODE_USE_BEDROCK: '1', AWS_REGION: 'eu-west-1' })
   on('command.register', () => ({ value: undefined }) as never)
   on('session.start', (_$, e) => ({ cwd: e.cwd }) as never)
-  const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'eu.anthropic.claude-opus-4-7' }
   on('turn.step', async function* () {
     yield { kind: 'stop', stopReason: 'end_turn', usage } as never
     return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage }
@@ -127,7 +127,7 @@ for (const [name, env, gateway] of [
     const { clock, posts } = agentFlow(on, env as Record<string, string>)
     on('command.register', () => ({ value: undefined }) as never)
     on('session.start', (_$, e) => ({ cwd: e.cwd }) as never)
-    const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude-opus-5-5' }
     on('turn.step', async function* () {
       yield { kind: 'stop', stopReason: 'end_turn', usage } as never
       return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage }
@@ -191,4 +191,57 @@ test('a teammate is sent with its name, its states as they change, and its end f
   expect(sent.filter(b => b.hook_event_name === 'AgentStatus').map(b => [b.agent_id, b.status]))
     .toEqual([['mate-1', 'running'], ['mate-1', 'idle']])
   expect(sent.filter(b => b.hook_event_name === 'SubagentStop').map(b => b.agent_id)).toEqual(['mate-1'])
+})
+
+test('a tool the API ran itself is sent as a call that started and ended', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude-opus-5-5' }
+  on('turn.step', async function* () {
+    yield { kind: 'stop', stopReason: 'end_turn', usage } as never
+    return {
+      turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage,
+      serverToolUses: [
+        { id: 'srv-1', name: 'advisor', input: { question: 'Which?' }, startedAt: 10, endedAt: 40 },
+        { id: 'srv-2', name: 'advisor', input: {}, startedAt: 50 },
+      ],
+    }
+  })
+
+  const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1, agentId: 'sub-1' } as never)
+  let item = await stream.next()
+  while (!item.done) item = await stream.next()
+  await clock.settle()
+
+  expect((item.value as { serverToolUses?: unknown[] }).serverToolUses).toHaveLength(2) // the result is passed on
+  expect(posts.map(p => p.body).filter(b => b.tool_name === 'advisor').map(b => [b.hook_event_name, b.tool_use_id, b.agent_id]))
+    .toEqual([
+      ['PreToolUse', 'srv-1', 'sub-1'], ['PostToolUse', 'srv-1', 'sub-1'],
+      ['PreToolUse', 'srv-2', 'sub-1'], ['PostToolUseFailure', 'srv-2', 'sub-1'],
+    ])
+})
+
+test('a permission request names the subagent from its check, and the organization’s ceiling', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('tool.check', () => ({ decision: 'ask', reason: 'Connector tool', ceiling: 'ask' }))
+  on('classic.PermissionRequest', () => ({}))
+
+  await $.tool.check({ tool: 'mcp__crm__update', input: {}, tool_use_id: 'tu-9', agentId: 'sub-1', ceiling: 'ask' } as never)
+  await $.classic.PermissionRequest({ tool_name: 'mcp__crm__update', tool_input: {}, agent_id: 'sub-1' } as never)
+  await clock.settle()
+
+  expect(posts.map(p => p.body).find(b => b.hook_event_name === 'PermissionRequest')).toEqual(expect.objectContaining({
+    agent_id: 'sub-1', tool_use_id: 'tu-9', reason: 'Connector tool', ceiling: 'ask',
+  }))
+})
+
+test('a subagent’s end carries the report it handed back', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.turn.complete({ answer: 'Found it in config/app.ts', durationMs: 900, isAborted: false, turnId: 't2', agentId: 'sub-1', reason: 'answer' } as never)
+  await clock.settle()
+
+  expect(posts.map(p => p.body).find(b => b.hook_event_name === 'SubagentStop')).toEqual(expect.objectContaining({
+    agent_id: 'sub-1', answer: 'Found it in config/app.ts',
+  }))
 })

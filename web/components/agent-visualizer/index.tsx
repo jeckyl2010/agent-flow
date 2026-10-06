@@ -21,13 +21,15 @@ import { TimelineEvent, TIMING, CARD } from "@/lib/agent-types"
 import { COST_PANEL } from "@/lib/canvas-constants"
 import { COLORS } from "@/lib/colors"
 
-import { MOCK_DURATION } from "@/lib/mock-scenario"
+import { MOCK_DURATION, DEMO_TOUR } from "@/lib/mock-scenario"
+import { useDemoTour } from "@/hooks/use-demo-tour"
 import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar } from "./top-bar"
 import { sessionCosts } from "@/lib/session-costs"
 import { chosenGrid, sessionImpacts } from "@/lib/eco-impact"
 import { EcoMoons } from "./eco-moons"
 import { TimeHorizonView } from "./time-horizon-view"
+import { WormholeLog } from "./wormhole-log"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 
 export function AgentVisualizer() {
@@ -76,6 +78,7 @@ export function AgentVisualizer() {
   const [showFileAttention, setShowFileAttention] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
   const [showHorizon, setShowHorizon] = useState(false)
+  const [showWormholeLog, setShowWormholeLog] = useState(false)
   const closeHorizon = useCallback(() => setShowHorizon(false), [])
   // A right-click menu is momentary: the time horizon opening dismisses it, not saves it for later
   const { setContextMenu } = selection
@@ -91,6 +94,13 @@ export function AgentVisualizer() {
 
   const [isReviewing, setIsReviewing] = useState(false)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
+
+  // The demo tours the views in step with its scenario, until the viewer takes over
+  useDemoTour(DEMO_TOUR, bridge.useMockData && !isReviewing, currentTime, stop => {
+    setShowHorizon(!!stop.horizon)
+    setShowTimeline(!!stop.timeline)
+    setShowWormholeLog(!!stop.wormholeLog)
+  })
 
   // Auto-play on mount
   useEffect(() => {
@@ -201,6 +211,7 @@ export function AgentVisualizer() {
     toggleTranscript: () => toggleExclusivePanel('transcript'),
     toggleTimeline: () => { setShowTimeline(prev => !prev) },
     toggleHorizon: () => { setShowHorizon(prev => !prev) },
+    toggleWormholeLog: () => { setShowWormholeLog(prev => !prev) },
     toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
     toggleStats: () => { setShowStats(prev => !prev) },
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
@@ -318,6 +329,15 @@ export function AgentVisualizer() {
 
       {/* Time horizon: where the session's time went, a second view over the canvas */}
       {showHorizon && <TimeHorizonView events={eventLog} agents={agents} currentTime={currentTime} onClose={closeHorizon} />}
+
+      {/* Wormhole log: the context's compactions, and how far it is from the next */}
+      <WormholeLog
+        visible={showWormholeLog && !showHorizon}
+        agents={agents}
+        events={eventLog}
+        currentTime={currentTime}
+        onClose={() => setShowWormholeLog(false)}
+      />
 
       {/* Message feed panel (top-left) */}
       <MessageFeedPanel
@@ -450,10 +470,12 @@ export function AgentVisualizer() {
         showCostOverlay={showCostOverlay}
         showTimeline={showTimeline}
         showHorizon={showHorizon}
+        showWormholeLog={showWormholeLog}
         isMuted={isMuted}
         onTogglePanel={toggleExclusivePanel}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleHorizon={() => setShowHorizon(prev => !prev)}
+        onToggleWormholeLog={() => setShowWormholeLog(prev => !prev)}
         onToggleMute={handleToggleMute}
       />
     </div>

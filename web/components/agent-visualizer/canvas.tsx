@@ -23,6 +23,8 @@ import {
   drawToolCalls,
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel, drawHeartbeats, drawModelTags,
+  drawWormholesBelow, drawWormholesAbove, isWormholeOpen,
+  drawAgentMessages, isMessageInFlight,
   detectStateChanges as detectStateChangesPure,
 } from './canvas/index'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
@@ -243,7 +245,9 @@ export function AgentCanvas({
     return activityRef.current.active(timestamp, {
       lastEvent: s.eventLog.at(-1),
       particles: s.particles.length,
-      effects: effectsRef.current.length,
+      // A wormhole or a message in flight animates as an effect does
+      effects: effectsRef.current.length
+        + (isWormholeOpen(s.agents, simTimeRef.current) || isMessageInFlight(s.agents, simTimeRef.current) ? 1 : 0),
       dragging: drawPropsRef.current.isDragging,
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only
@@ -370,6 +374,8 @@ export function AgentCanvas({
       drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current)
       drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId)
       drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId)
+      drawWormholesBelow(ctx, agents, simTimeRef.current)
+      drawAgentMessages(ctx, agents, simTimeRef.current)
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current)
       drawHeartbeats(ctx, agents, simTimeRef.current)
       drawModelTags(ctx, agents, simTimeRef.current)
@@ -377,6 +383,7 @@ export function AgentCanvas({
       if (showCostOverlay) drawCostLabels(ctx, agents, toolCalls)
       drawParticles(ctx, particles, edgeMap, agents, toolCalls, timeRef.current)
       drawEffects(ctx, effectsRef.current)
+      drawWormholesAbove(ctx, agents, simTimeRef.current)
 
       if (selectedAgentId) {
         const agent = agents.get(selectedAgentId)

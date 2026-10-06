@@ -21,6 +21,10 @@ export type AgentEventType =
   | 'subagent_dispatch'
   | 'subagent_return'
   | 'permission_requested'
+  | 'context_compaction'
+  | 'session_measure'
+  | 'agent_message'
+  | 'turn_failed'
   | 'error'
 
 export interface AgentEvent {
@@ -226,6 +230,18 @@ export interface WatchedSession {
     reasoning: number
     subagentResults: number
   }
+  /** The main conversation's compactions from before it was watched, oldest first */
+  pastCompactions: CompactionRecord[]
+}
+
+/** A compaction as the transcript records it (a `compact_boundary` entry) */
+export interface CompactionRecord {
+  trigger?: string
+  tokensBefore?: number
+  tokensAfter?: number
+  durationMs?: number
+  /** When it happened, ISO 8601 */
+  at?: string
 }
 
 // ─── Claude Settings Types ──────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, TurnStepServerToolUse } from 'claude-code'
 
 /**
  * Sends this session's events to a running Agent Flow (VS Code extension, `pnpm run dev` or
@@ -30,6 +30,8 @@ const QUEUE_MAX = 500
 const OUTPUT_INTERVAL_MS = 250
 /** The longest text sent per block, as the transcript parser cuts a message (MESSAGE_MAX) */
 const OUTPUT_MAX = 2_000
+/** What SendMessage calls the session's main agent: the lead's name in a team, or `main` */
+const LEAD_ADDRESSES = new Set(['team-lead', 'main'])
 /** A POST not answered by then is given up, so an instance that went away cannot stall the queue */
 const POST_TIMEOUT_MS = 1_000
 
@@ -41,7 +43,8 @@ let queue: Payload[] = []
 let isFlushScheduled = false
 let targets: Target[] = []
 let scannedAt = -Infinity
-/** tool_use_id → the subagent whose call it is, for the permission check, which carries no agentId */
+/** tool_use_id → the subagent whose call it is, for engines before 2.1.290, whose permission check
+ *  carries no agentId */
 const toolAgents = new Map<string, string>()
 /** agentId → its type, as the command hooks' `agent_type` */
 const agentTypes = new Map<string, string>()
@@ -50,8 +53,12 @@ const teammates = new Set<string>()
 /** agentId → the status last sent for it, from `$.agent.list()` */
 const statuses = new Map<string, string>()
 let statusTimer: { cancel(): void } | undefined
+/** The context window last measured, and the fill at which auto-compaction runs in it (absent when
+ *  it's off): the threshold is read again only when the window changes, as on a /model switch */
+let measuredWindow = 0
+let compactThreshold: number | undefined
 /** tool_use_id → the `ask` verdict its permission check returned, until the call ends */
-const asks = new Map<string, { tool: string; agentId?: string; reason?: string; rule?: string }>()
+const asks = new Map<string, { tool: string; agentId?: string; reason?: string; rule?: string; ceiling?: string }>()
 /**
  * How this session reaches Claude, as Claude Code's environment sets it up: Anthropic's API, or
  * Amazon Bedrock, Google Vertex AI or Microsoft Foundry, and the region. The footprint is figured
@@ -131,6 +138,8 @@ export const register: Register = on => {
     statuses.clear()
     statusTimer?.cancel()
     statusTimer = undefined
+    measuredWindow = 0
+    compactThreshold = undefined
     return next(e)
   })
 
@@ -170,11 +179,15 @@ export const register: Register = on => {
   })
 
   // An `ask` goes to the mode's decider (auto mode's classifier may allow it unseen), so the
-  // request is sent only once a dialog shows; the verdict is kept for its reason and rule.
+  // request is sent only once a dialog shows; the verdict is kept for its reason, its rule and the
+  // organization's ceiling (since 2.1.290: `ask` when its administrators require an approval).
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     if (verdict.decision === 'ask' && e.tool_use_id) {
-      asks.set(e.tool_use_id, { tool: e.tool, agentId: toolAgents.get(e.tool_use_id), reason: verdict.reason, rule: verdict.rule })
+      asks.set(e.tool_use_id, {
+        tool: e.tool, agentId: e.agentId ?? toolAgents.get(e.tool_use_id),
+        reason: verdict.reason, rule: verdict.rule, ceiling: verdict.ceiling,
+      })
     }
     return verdict
   })
@@ -185,7 +198,7 @@ export const register: Register = on => {
     send($, {
       hook_event_name: 'PermissionRequest',
       tool_name: e.tool_name, tool_input: e.tool_input, ...agentFields(e.agent_id),
-      ...(asked ? { tool_use_id: asked[0], reason: asked[1].reason, rule: asked[1].rule } : {}),
+      ...(asked ? { tool_use_id: asked[0], reason: asked[1].reason, rule: asked[1].rule, ceiling: asked[1].ceiling } : {}),
     })
     return next(e)
   })
@@ -195,16 +208,15 @@ export const register: Register = on => {
     if (spawned.agentId) {
       // Since 2.1.289 a teammate's spawn comes here too, with its name in the team; older engines
       // leave these out
-      const spawn = e as typeof e & { isTeammate?: boolean; name?: string; parentAgentId?: string }
       agentTypes.set(spawned.agentId, e.subagentType)
-      if (spawn.isTeammate) teammates.add(spawned.agentId)
+      if (e.isTeammate) teammates.add(spawned.agentId)
       send($, {
         hook_event_name: 'SubagentStart',
         agent_id: spawned.agentId, agent_type: e.subagentType,
         tool_use_id: e.tool_use_id, description: e.description, model: spawned.model,
         // absent when the main loop started it
-        parent_agent_id: spawn.parentAgentId ?? toolAgents.get(e.tool_use_id),
-        ...(spawn.isTeammate ? { is_teammate: true, agent_name: spawn.name } : {}),
+        parent_agent_id: e.parentAgentId ?? toolAgents.get(e.tool_use_id),
+        ...(e.isTeammate ? { is_teammate: true, agent_name: e.name } : {}),
       })
       watchStatuses($)
     }
@@ -215,20 +227,92 @@ export const register: Register = on => {
     // A teammate's turn ends each time it answers; it ends when its status says so
     if (e.agentId && teammates.has(e.agentId)) return next(e)
     if (e.agentId) {
+      // The report it handed back (filled in auto mode too since 2.1.290), cut as a block of output is
       send($, {
         hook_event_name: 'SubagentStop', ...agentFields(e.agentId),
         reason: e.reason, duration_ms: e.durationMs,
+        ...(e.answer.trim() ? { answer: e.answer.slice(0, OUTPUT_MAX) } : {}),
       })
       agentTypes.delete(e.agentId)
       statuses.delete(e.agentId)
     } else {
-      send($, { hook_event_name: 'Stop', reason: e.reason, duration_ms: e.durationMs })
+      send($, {
+        hook_event_name: 'Stop', reason: e.reason, duration_ms: e.durationMs,
+        // What the API said of a refusal that ended the turn, the classifier's category and why
+        ...(e.reason === 'refusal' ? { refusal: e.refusal } : {}),
+      })
+    }
+    return next(e)
+  })
+
+  // The main conversation's context as the engine measured it, after each turn: its fill, the real
+  // window (where the UI would guess it from the model's family) and the rate-limit windows
+  on('session.measure', async ($, e, next) => {
+    const { context, rateLimits, changed } = e
+    if (changed.includes('context') && context.window !== measuredWindow) {
+      measuredWindow = context.window
+      // `summary` counts locally and sends nothing to the API
+      const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => undefined)
+      compactThreshold = usage?.context.breakdown?.autoCompactThreshold
+    }
+    if (changed.includes('context') || changed.includes('rateLimits')) {
+      send($, {
+        hook_event_name: 'SessionMeasure',
+        context_window: context.window,
+        ...(context.tokens !== undefined ? { context_tokens: context.tokens } : {}),
+        ...(compactThreshold !== undefined ? { compact_threshold: compactThreshold } : {}),
+        rate_limits: rateLimits,
+      })
+    }
+    return next(e)
+  })
+
+  // A compaction as it starts and ends: the UI shows it running (a summary can take half a minute)
+  // and the context it left. One computed ahead of time (`precompute`) changes nothing yet
+  on('session.compact', async ($, e, next) => {
+    if (e.trigger === 'precompute') return next(e)
+    const fields = { trigger: e.trigger, ...agentFields(e.agentId) }
+    send($, { hook_event_name: 'Compaction', phase: 'start', ...fields, messages_before: e.messages.length })
+    const startedAt = Date.now()
+    try {
+      const done = await next(e)
+      send($, done.skip !== undefined
+        ? { hook_event_name: 'Compaction', phase: 'skipped', ...fields, reason: done.skip }
+        : {
+            hook_event_name: 'Compaction', phase: 'end', ...fields,
+            messages_before: e.messages.length, messages_after: done.messages.length,
+            ...(done.tokensBefore !== undefined ? { tokens_before: done.tokensBefore } : {}),
+            ...(done.tokensAfter !== undefined ? { tokens_after: done.tokensAfter } : {}),
+            duration_ms: Date.now() - startedAt,
+          })
+      return done
+    } catch (error) {
+      send($, { hook_event_name: 'Compaction', phase: 'skipped', ...fields, reason: error instanceof Error ? error.message : String(error) })
+      throw error
+    }
+  })
+
+  // A message the model sends another agent (SendMessage), as the UI draws it between the two: the
+  // recipient by its agent id, or none for the main agent. A session elsewhere isn't drawn
+  on('session.send', async ($, e, next) => {
+    if (e.origin.kind === 'model') {
+      const to = e.to.replace(/ \[[^\]]*\]$/, '') // a listing's " [ref]"
+      const toAgentId = agentTypes.has(to) ? to
+        : LEAD_ADDRESSES.has(to) ? undefined
+        : (await $.agent.list().catch(() => [])).find(a => a.name === to || a.teammateId === to)?.id
+      if (toAgentId || LEAD_ADDRESSES.has(to)) {
+        send($, {
+          hook_event_name: 'AgentMessage', ...agentFields(e.agentId),
+          ...(toAgentId ? { to_agent_id: toAgentId } : {}), text: e.text.slice(0, OUTPUT_MAX),
+        })
+      }
     }
     return next(e)
   })
 
   // Passes every chunk on untouched. Text and thinking are sent as they grow (`ModelOutput`, one
-  // stream per content block, the UI updating it in place); the stop chunk carries the usage.
+  // stream per content block, the UI updating it in place); the stop chunk carries the usage. The
+  // tools the API ran itself (the advisor) pass no `tool.call`: the response lists them once whole.
   on('turn.step', async function* ($, e, next) {
     const blocks = new Map<number, OutputBlock>()
     const sendBlock = (index: number, block: OutputBlock, isFinal: boolean) => {
@@ -247,7 +331,10 @@ export const register: Register = on => {
     }
 
     try {
-      for await (const chunk of next(e)) {
+      const stream = next(e)
+      let item = await stream.next()
+      for (; !item.done; item = await stream.next()) {
+        const chunk = item.value
         if (chunk.kind === 'text' || chunk.kind === 'thinking') {
           let block = blocks.get(chunk.index)
           if (!block) {
@@ -266,10 +353,25 @@ export const register: Register = on => {
         }
         yield chunk
       }
+      for (const use of item.value.serverToolUses ?? []) sendServerToolUse($, use, e.agentId)
+      return item.value
     } finally {
       finish() // an interrupted step still shows what it said
     }
   })
+}
+
+/** A tool the API ran inside a request (since 2.1.290), as a call that started and ended. Both are
+ *  known only once the response is whole, so they are sent together; one the response ended before
+ *  answering (a stream cut short, a turn paused) is sent as interrupted */
+function sendServerToolUse($: EngineInterface, use: TurnStepServerToolUse, agentId: string | undefined): void {
+  const call = { tool_name: use.name, tool_input: use.input, tool_use_id: use.id, ...agentFields(agentId) }
+  send($, { hook_event_name: 'PreToolUse', ...call })
+  if (use.endedAt === undefined) {
+    send($, { hook_event_name: 'PostToolUseFailure', ...call, error: 'The response ended before its result', is_interrupt: true })
+  } else {
+    send($, { hook_event_name: 'PostToolUse', ...call, tool_response: '' })
+  }
 }
 
 /** Reads the agents' states once a second while any is out, and sends each change: `idle` and

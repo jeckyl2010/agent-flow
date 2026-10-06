@@ -6,6 +6,7 @@
 import { COLORS } from '@/lib/colors'
 import { getGlowSprite } from '../canvas/render-cache'
 import { formatDuration, type TimeHorizon, type TimeKind } from '@/lib/time-horizon'
+import { compactionLabel } from '@/lib/compaction'
 import {
   Batch, HOLE_R, KIND_COLOR, MATTER, R_IN, R_OUT, SAMPLES, U_NOW, hex, segment, spiral,
   type Hover, type Mote, type SceneInput, type View,
@@ -27,6 +28,7 @@ export function createDisk(v: View) {
   /** When each turn's hexagon first appeared while the view was open, by turn start: it pops in */
   const poppedAt = new Map<number, number>()
   let seenStarts: Set<number> | undefined
+  let seenCompactions: Set<number> | undefined
 
   function kindAt(h: TimeHorizon, u: number): TimeKind {
     const t = v.timeAtU(h, u)
@@ -193,6 +195,8 @@ export function createDisk(v: View) {
       ctx.fill()
     })
 
+    drawCompactions(ctx, h, now)
+
     ctx.font = `${Math.max(9, 10 * v.scale)}px monospace`
     ctx.textAlign = 'center'
     // Back toward the rim: how long ago
@@ -216,6 +220,60 @@ export function createDisk(v: View) {
         ctx.fillText(`T+${span(t)}`, x, y)
       }
     }
+  }
+
+  /** Compactions where they happened on the disk: a small wormhole each, a dark throat in a
+   *  violet rim with starlight bent round it; the latest says what it did. One that happens while
+   *  the view is open opens with a ring */
+  function drawCompactions(ctx: CanvasRenderingContext2D, h: TimeHorizon, now: number) {
+    const opening = seenCompactions === undefined
+    seenCompactions ??= new Set()
+    h.compactions.forEach((c, i) => {
+      if (!seenCompactions!.has(c.time)) {
+        seenCompactions!.add(c.time)
+        if (!opening) poppedAt.set(-1 - c.time, now)
+      }
+      const { theta, r } = spiral(v.pastU(h, c.time))
+      const [x, y] = v.project(r, theta)
+      const s = v.scale
+      const poppedFrom = poppedAt.get(-1 - c.time)
+      const pop = poppedFrom !== undefined ? Math.max(0, 1 - (now - poppedFrom) / 1400) : 0
+      const spin = v.reducedMotion ? 0 : now * 0.0012
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      glowAt(ctx, x, y, COLORS.wormholeGlow, (16 + pop * 30) * s)
+      ctx.globalCompositeOperation = 'source-over'
+      if (pop > 0) {
+        ctx.beginPath()
+        ctx.arc(x, y, (7 + (1 - pop) * 46) * s, 0, Math.PI * 2)
+        ctx.strokeStyle = COLORS.wormholeRim + hex(pop * 0.8)
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+      }
+      ctx.beginPath()
+      ctx.arc(x, y, 5.5 * s, 0, Math.PI * 2)
+      ctx.fillStyle = COLORS.wormholeCore
+      ctx.fill()
+      ctx.strokeStyle = COLORS.wormholeRim
+      ctx.lineWidth = 1.4
+      ctx.stroke()
+      for (let k = 0; k < 2; k++) {
+        const a0 = spin + k * Math.PI
+        ctx.beginPath()
+        ctx.arc(x, y, 8.5 * s, a0, a0 + 1.1)
+        ctx.strokeStyle = COLORS.horizonLight + 'b0'
+        ctx.lineWidth = 1.1
+        ctx.stroke()
+      }
+      if (i === h.compactions.length - 1) {
+        ctx.font = `${Math.max(8, 9 * s)}px monospace`
+        // Below and to the right: now's label sits above the disk here
+        ctx.textAlign = 'left'
+        ctx.fillStyle = COLORS.wormholeRim
+        ctx.fillText(`⟲ ${compactionLabel(c)}`, x + 10 * s, y + 16 * s)
+      }
+      ctx.restore()
+    })
   }
 
   function drawNow(ctx: CanvasRenderingContext2D, input: SceneInput, now: number) {

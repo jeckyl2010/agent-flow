@@ -58,6 +58,60 @@ export interface Agent {
   sessionCostUsd?: number
   /** The model and effort its latest request ran with, as the bridge mod measured it */
   modelTag?: ModelTag
+  /** Its context's compactions, oldest first: those from before Agent Flow watched, and each since,
+   *  running while Claude Code summarizes */
+  compactions?: Compaction[]
+  /** The main agent: the fill at which Claude Code compacts its context, as it measured it */
+  compactThreshold?: number
+  /** The main agent: the account's rate-limit windows, as the latest response reported them */
+  rateLimits?: RateLimit[]
+  /** Messages it sent other agents lately (SendMessage), newest last */
+  sentMessages?: AgentMessage[]
+  /** While waiting for permission: why it asks, when the bridge mod said (a rule, the organization) */
+  permissionWhy?: string
+  /** Its latest turn that ended without an answer: a refusal or an API error */
+  failure?: TurnFailure
+}
+
+/** A context compaction: the conversation summarized, and what it is now */
+export interface Compaction {
+  phase: 'running' | 'done' | 'skipped'
+  /** Simulation time it started; a transcript records only its end, so there, when it ended */
+  startTime: number
+  endTime?: number
+  /** `auto` at the threshold, `manual` (/compact) or a plugin's */
+  trigger?: string
+  tokensBefore?: number
+  tokensAfter?: number
+  durationMs?: number
+  /** When it happened, ISO 8601 */
+  at?: string
+  /** From before Agent Flow watched: listed, never shown happening */
+  isHistory?: boolean
+  /** Why it was skipped */
+  reason?: string
+}
+
+export interface RateLimit {
+  /** `five_hour`, `seven_day`, or a gateway's `spend_limit` */
+  kind: string
+  percentUsed: number
+  /** ISO 8601 */
+  resetsAt?: string
+}
+
+export interface AgentMessage {
+  /** The recipient's name */
+  to: string
+  time: number
+  text: string
+}
+
+export interface TurnFailure {
+  reason: 'refusal' | 'error'
+  time: number
+  category?: string
+  explanation?: string
 }
 
 export interface ModelTag {
@@ -246,6 +300,10 @@ export interface SimulationEvent {
     | 'subagent_dispatch'
     | 'subagent_return'
     | 'permission_requested'
+    | 'context_compaction'
+    | 'session_measure'
+    | 'agent_message'
+    | 'turn_failed'
   payload: Record<string, unknown>
   sessionId?: string
 }

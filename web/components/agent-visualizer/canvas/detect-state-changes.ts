@@ -1,5 +1,6 @@
 import type { Agent, ToolCallNode } from '@/lib/agent-types'
 import { FX } from '@/lib/agent-types'
+import { WORMHOLE } from '@/lib/canvas-constants'
 import { COLORS } from '@/lib/colors'
 import type { VisualEffect } from './draw-effects'
 
@@ -10,6 +11,12 @@ export type StateTransition =
   | { kind: 'tool_start' }
   | { kind: 'tool_complete' }
   | { kind: 'tool_error' }
+  | { kind: 'compaction_open' }
+  /** `delay`: seconds until the jump is drawn, for one seen only ended, which opens first */
+  | { kind: 'compaction_jump'; delay: number }
+
+/** The key a compaction's state is kept under beside its agent's, in the agent states map */
+const compactionKey = (id: string) => `${id}\u0000compaction`
 
 /**
  * Compare previous and current agent/tool states and return both visual effects
@@ -49,6 +56,24 @@ export function detectStateChanges(
           type: 'spawn', x: agent.x, y: agent.y,
           color: COLORS.holoBase, age: 0, duration: FX.spawnDuration,
         })
+      }
+    }
+
+    // A compaction from the session's own time (not history): opening, then jumping
+    const latest = agent.compactions?.at(-1)
+    if (latest) {
+      const key = compactionKey(id)
+      const now = `${agent.compactions!.length}:${latest.phase}`
+      newAgentStates.set(key, now)
+      const before = prevAgentStates.get(key)
+      if (!latest.isHistory && before !== now) {
+        if (latest.phase === 'running') transitions.push({ kind: 'compaction_open' })
+        else if (latest.phase === 'done') {
+          // Seen running, it jumps now; seen only ended (a transcript), it opens first
+          const wasRunning = before === `${agent.compactions!.length}:running`
+          if (!wasRunning) transitions.push({ kind: 'compaction_open' })
+          transitions.push({ kind: 'compaction_jump', delay: wasRunning ? 0 : WORMHOLE.open })
+        }
       }
     }
 

@@ -24,6 +24,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Multi-session support**: Track multiple concurrent agent sessions with tabs
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
 - **Timeline & transcript panels**: Review the full execution timeline, file attention heatmap, and message transcript
+- **Compactions as wormholes**: When Claude Code compacts a conversation, the agent's node opens a wormhole: the conversation spirals in while it is summarized, then jumps, showing what it left (`⟲ 967k → 13k`). The **Wormhole** log (`w`) lists every compaction, earlier ones included, and how far the context is from the next, at the rate it is growing; the time horizon marks each on its disk
 - **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
 
 ## Getting Started
@@ -85,6 +86,9 @@ sessions it reports, Agent Flow shows:
 - answers and thinking streaming in as the model writes them
 - agent-team teammates by their names in the team (Claude Code 2.1.289+)
 - when a subagent or teammate is idle or waiting, as Claude Code reports it (2.1.289+)
+- compactions as they start and end, the real context window and where it compacts, and your
+  rate-limit windows; messages agents send each other; tools the API runs itself (the advisor);
+  why a permission dialog asks; a refused turn's reason (2.1.290+)
 
 Load it with `claude --plugin-dir /path/to/agent-flow/plugin`, then run
 `/agent-flow` in Claude Code to see where it sends events. It finds a running

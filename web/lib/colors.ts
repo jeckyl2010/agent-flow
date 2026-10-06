@@ -170,6 +170,12 @@ export const COLORS = {
   effortLow: '#4a8db8',
   horizonActiveBg: 'rgba(255, 217, 160, 0.12)',
 
+  // Wormhole — a compaction: the throat's dark, the lensed starlight around it, its violet glow
+  wormholeCore: '#04020c',
+  wormholeRim: '#e4dcff',
+  wormholeGlow: '#8f7bff',
+  wormholeActiveBg: 'rgba(143, 123, 255, 0.14)',
+
   // Canvas drawing — cost panel bar fills
   barFillMain: 'rgba(102, 204, 255, 0.15)',
   barFillSub: 'rgba(204, 136, 255, 0.15)',

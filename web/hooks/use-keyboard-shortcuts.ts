@@ -6,6 +6,7 @@ export function useKeyboardShortcuts(actions: {
   toggleTranscript: () => void
   toggleTimeline: () => void
   toggleHorizon: () => void
+  toggleWormholeLog: () => void
   toggleHexGrid: () => void
   toggleStats: () => void
   toggleCostOverlay: () => void
@@ -57,6 +58,10 @@ export function useKeyboardShortcuts(actions: {
         case 'h':
         case 'H':
           a.toggleHorizon()
+          break
+        case 'w':
+        case 'W':
+          a.toggleWormholeLog()
           break
         case 'g':
         case 'G':

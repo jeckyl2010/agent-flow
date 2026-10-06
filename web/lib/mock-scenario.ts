@@ -67,7 +67,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'explore-agent', task: 'Deep-dive into payment flow and DB schema' } },
   { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'research-agent', task: 'Research Stripe & PayPal API patterns' } },
   { time: 10.2, type: 'agent_spawn', payload: { name: 'explore-agent', parent: 'orchestrator', task: 'Analyze payment flow and database schema' } },
-  { time: 10.2, type: 'agent_spawn', payload: { name: 'research-agent', parent: 'orchestrator', task: 'Research Stripe & PayPal integration patterns' } },
+  { time: 10.2, type: 'agent_spawn', payload: { name: 'research-agent', parent: 'orchestrator', task: 'Research Stripe & PayPal integration patterns', model: 'claude-haiku-4-5' } },
   { time: 10.5, type: 'context_update', payload: { agent: 'explore-agent', tokens: 1800, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
   { time: 10.5, type: 'context_update', payload: { agent: 'research-agent', tokens: 1800, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
 
@@ -95,8 +95,8 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 18.2, type: 'tool_call_end', payload: { agent: 'research-agent', tool: 'WebFetch', result: 'PaymentIntents flow: 1) Create intent, 2) Confirm client-side, 3) Handle webhooks for async events', tokenCost: 4000 } },
 
   // research-agent: second search for PayPal (immediate — slow: network)
-  { time: 18.4, type: 'tool_call_start', payload: { agent: 'research-agent', tool: 'WebSearch', args: 'PayPal Orders API v2 Node.js SDK', inputData: { query: 'PayPal Orders API v2 Node.js SDK 2026' } } },
-  { time: 20.7, type: 'tool_call_end', payload: { agent: 'research-agent', tool: 'WebSearch', result: '8 results — PayPal Checkout Server SDK with Orders API v2', tokenCost: 2000 } },
+  { time: 20.0, type: 'tool_call_start', payload: { agent: 'research-agent', tool: 'WebSearch', args: 'PayPal Orders API v2 Node.js SDK', inputData: { query: 'PayPal Orders API v2 Node.js SDK 2026' } } },
+  { time: 20.85, type: 'tool_call_end', payload: { agent: 'research-agent', tool: 'WebSearch', result: '8 results — PayPal Checkout Server SDK with Orders API v2', tokenCost: 2000 } },
   { time: 21.0, type: 'context_update', payload: { agent: 'research-agent', tokens: 12000, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 8500, reasoning: 1700, subagentResults: 0 } } },
   { time: 21.5, type: 'subagent_return', payload: { child: 'research-agent', parent: 'orchestrator', summary: 'Stripe PaymentIntents + webhooks, PayPal Orders API v2, both have Node.js SDKs' } },
   { time: 21.5, type: 'agent_complete', payload: { name: 'research-agent' } },
@@ -188,9 +188,9 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 
   // ── Phase 6: Final Verification (thinking — deciding on final steps) ──────
   { time: 57.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 48000, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 12500, reasoning: 16800, subagentResults: 16500 } } },
-  { time: 58.0, type: 'message', payload: { agent: 'orchestrator', content: 'Tests passing. Running type check and final verification...' } },
+  { time: 59.4, type: 'message', payload: { agent: 'orchestrator', content: 'Tests passing. Running type check and final verification...' } },
 
-  { time: 58.5, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx tsc --noEmit 2>&1', inputData: { command: 'npx tsc --noEmit 2>&1', description: 'TypeScript type checking' } } },
+  { time: 59.6, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx tsc --noEmit 2>&1', inputData: { command: 'npx tsc --noEmit 2>&1', description: 'TypeScript type checking' } } },
   { time: 62.0, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Bash', result: 'No errors found. Build clean.', tokenCost: 200 } },
 
   { time: 62.2, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'TodoWrite', args: 'marking all complete', inputData: {
@@ -215,10 +215,10 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 // ── Model requests, as the agent-flow-bridge mod reports them ──────────────
 // Each is priced into the agent's spend and drawn as a heartbeat pulse; the cache share grows as
 // the conversation's prefix is reused.
-const step = (time: number, agent: string, stopReason: string, input: number, output: number, cacheRead: number, cacheWrite: number, effort = 'high'): SimulationEvent => ({
+const step = (time: number, agent: string, stopReason: string, input: number, output: number, cacheRead: number, cacheWrite: number, effort = 'high', model?: string): SimulationEvent => ({
   time, type: 'model_step',
   payload: {
-    agent, model: agent === 'orchestrator' ? 'claude-opus-5-5' : 'claude-sonnet-5-5', effort, stopReason,
+    agent, model: model ?? (agent === 'orchestrator' ? 'claude-opus-5-5' : 'claude-sonnet-5-5'), effort, stopReason,
     usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite },
   },
 })
@@ -229,10 +229,10 @@ const MODEL_STEPS: SimulationEvent[] = [
   step(7.9, 'orchestrator', 'tool_use', 250, 1400, 9800, 1600),
   step(10.0, 'orchestrator', 'tool_use', 200, 600, 11800, 700),
   step(11.5, 'explore-agent', 'tool_use', 1800, 220, 0, 1500, 'low'),
-  step(12.0, 'research-agent', 'tool_use', 1800, 260, 0, 1500),
+  step(12.0, 'research-agent', 'tool_use', 1800, 260, 0, 1500, 'high', 'claude-haiku-4-5'),
   step(13.6, 'explore-agent', 'end_turn', 120, 900, 5200, 900, 'low'),
-  step(17.0, 'research-agent', 'tool_use', 150, 300, 8800, 1200),
-  step(21.2, 'research-agent', 'end_turn', 140, 1700, 10500, 600),
+  step(17.0, 'research-agent', 'tool_use', 150, 300, 8800, 1200, 'high', 'claude-haiku-4-5'),
+  step(21.2, 'research-agent', 'end_turn', 140, 1700, 10500, 600, 'high', 'claude-haiku-4-5'),
   step(22.5, 'orchestrator', 'tool_use', 300, 2600, 21000, 3200, 'xhigh'),
   step(35.0, 'test-runner', 'tool_use', 2100, 400, 0, 1800, 'medium'),
   step(44.0, 'test-runner', 'tool_use', 180, 3200, 9400, 1100, 'medium'),
@@ -241,10 +241,76 @@ const MODEL_STEPS: SimulationEvent[] = [
   step(63.8, 'orchestrator', 'end_turn', 240, 2100, 47800, 600, 'xhigh'),
 ]
 
-const WITH_MODEL_STEPS = [...NORMAL_MOCK_SCENARIO, ...MODEL_STEPS].sort((a, b) => a.time - b.time)
+// ── What the bridge mod adds on Claude Code 2.1.290 ──────────────────────────
+// The measured window and rate limits, compactions (a wormhole each, and the log's history), the
+// advisor, agents messaging each other, and a permission that says why it asks.
+const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+const minutesAhead = (m: number) => new Date(Date.now() + m * 60_000).toISOString()
+
+const BRIDGE_EVENTS: SimulationEvent[] = [
+  { time: 0.5, type: 'session_measure', payload: {
+    agent: 'orchestrator', contextWindow: 1_000_000, compactThreshold: 835_000,
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 34, resetsAt: minutesAhead(130) },
+      { kind: 'seven_day', percentUsed: 61, resetsAt: minutesAhead(3 * 24 * 60) },
+    ],
+  } },
+  // The session's earlier compactions, from before Agent Flow watched it
+  { time: 0.5, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'auto', tokensBefore: 836_412, tokensAfter: 18_904, durationMs: 31_200, at: minutesAgo(190), isHistory: true } },
+  { time: 0.5, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'manual', tokensBefore: 412_377, tokensAfter: 21_050, durationMs: 24_800, at: minutesAgo(75), isHistory: true } },
+
+  // The advisor, a tool the API runs itself, weighs in on the plan
+  { time: 8.4, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'advisor', args: 'Strategy pattern or one adapter per provider?', inputData: { question: 'Strategy pattern or one adapter per provider?' } } },
+  { time: 9.3, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'advisor', result: 'A gateway interface with one adapter per provider: webhooks differ too much to share', tokenCost: 400 } },
+
+  // The research agents compare notes
+  { time: 12.9, type: 'agent_message', payload: { from: 'explore-agent', to: 'research-agent', text: 'Heads up: the app still calls Stripe v2 charges directly, and nothing handles webhooks yet' } },
+  { time: 14.6, type: 'agent_message', payload: { from: 'research-agent', to: 'explore-agent', text: 'Thanks: PaymentIntents replaces charges, so webhooks become mandatory' } },
+
+  // The Stripe docs fill the research agent's window: it compacts, and jumps
+  { time: 18.2, type: 'context_update', payload: { agent: 'research-agent', tokens: 168_400, isMeasured: true } },
+  { time: 18.3, type: 'context_compaction', payload: { agent: 'research-agent', phase: 'start', trigger: 'auto', at: minutesAgo(0) } },
+  { time: 19.9, type: 'context_compaction', payload: { agent: 'research-agent', phase: 'end', trigger: 'auto', tokensBefore: 168_400, tokensAfter: 9_800, durationMs: 1_600, at: minutesAgo(0) } },
+
+  // The schema needs the new providers: a settings rule asks before any migration runs
+  { time: 56.8, type: 'permission_requested', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx prisma migrate dev --name payment_providers', message: 'Bash: npx prisma migrate dev --name payment_providers', title: 'Permission needed', why: 'Rule Bash(npx prisma migrate:*)' } },
+  { time: 58.6, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx prisma migrate dev --name payment_providers', inputData: { command: 'npx prisma migrate dev --name payment_providers' } } },
+  { time: 59.3, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Bash', result: 'Applied migration 20261006_payment_providers', tokenCost: 150 } },
+
+  // Afterwards you compact the session by hand: the finale
+  { time: 66.0, type: 'message', payload: { agent: 'orchestrator', role: 'user', content: '/compact keep the adapter design and the open follow-ups' } },
+  { time: 66.3, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'start', trigger: 'manual', at: minutesAgo(0) } },
+  { time: 70.2, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'manual', tokensBefore: 52_400, tokensAfter: 6_100, durationMs: 3_900, at: minutesAgo(0) } },
+]
+
+const WITH_MODEL_STEPS = [...NORMAL_MOCK_SCENARIO, ...MODEL_STEPS, ...BRIDGE_EVENTS].sort((a, b) => a.time - b.time)
 
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
   : WITH_MODEL_STEPS
 
 export const MOCK_DURATION = (MOCK_SCENARIO.at(-1)?.time ?? -10) + 10
+
+/** What the demo shows from a moment of the scenario on, until the next stop */
+export interface TourStop {
+  at: number
+  horizon?: boolean
+  timeline?: boolean
+  wormholeLog?: boolean
+}
+
+/**
+ * The demo's tour of the views, in step with the scenario: the canvas while agents fan out, the
+ * time horizon as they land, the timeline through the tests, the canvas for the compaction's
+ * wormhole, then the horizon with its mark on the disk and the wormhole log to end. It stops for
+ * good at the viewer's first click, scroll or key.
+ */
+export const DEMO_TOUR: TourStop[] = stressLevel ? [] : [
+  { at: 0 },
+  { at: 22, horizon: true },
+  { at: 31 },
+  { at: 45, timeline: true },
+  { at: 53 },
+  { at: 73.8, horizon: true },
+  { at: 77.5, wormholeLog: true },
+]

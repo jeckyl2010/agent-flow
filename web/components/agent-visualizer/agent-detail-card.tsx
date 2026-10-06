@@ -1,8 +1,9 @@
 'use client'
 
-import { CARD, Z, type AgentState } from '@/lib/agent-types'
+import { CARD, Z, type AgentState, type Compaction, type TurnFailure } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName } from '@/lib/utils'
+import { compactionLabel } from '@/lib/compaction'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar } from './shared-ui'
 
@@ -18,9 +19,27 @@ interface AgentDetailCardProps {
     timeAlive: number
     currentTool?: string
     pendingPermission?: string
+    permissionWhy?: string
     isTeammate?: boolean
+    compactions?: Compaction[]
+    compactThreshold?: number
+    failure?: TurnFailure
   }
   onClose: () => void
+}
+
+/** Where the context compacts, and what its compactions did */
+function CompactionLine({ compactions, threshold, tokensMax }: { compactions?: Compaction[]; threshold?: number; tokensMax: number }) {
+  const done = compactions?.filter(c => c.phase === 'done') ?? []
+  const running = compactions?.at(-1)?.phase === 'running'
+  if (!threshold && done.length === 0 && !running) return null
+  const last = done.at(-1)
+  return (
+    <div className="mt-1 text-[9px] font-mono flex justify-between gap-2" style={{ color: COLORS.wormholeGlow }}>
+      <span>{running ? '⟲ compacting…' : last ? `⟲ ${done.length}× · last ${compactionLabel(last)}` : ''}</span>
+      {threshold && tokensMax > 0 && <span style={{ color: COLORS.textDim }}>compacts at {Math.round((threshold / tokensMax) * 100)}%</span>}
+    </div>
+  )
 }
 
 export function AgentDetailCard({
@@ -72,6 +91,7 @@ export function AgentDetailCard({
           </span>
         </div>
         <ProgressBar percent={contextPercent} color={stateColor} />
+        <CompactionLine compactions={agent.compactions} threshold={agent.compactThreshold} tokensMax={agent.tokensMax} />
       </div>
 
       {/* Stats row */}
@@ -107,6 +127,20 @@ export function AgentDetailCard({
           }}
         >
           Waiting for you to allow {agent.pendingPermission}
+          {agent.permissionWhy && <div className="mt-1 opacity-75">{agent.permissionWhy}</div>}
+        </div>
+      )}
+
+      {/* Its latest turn ended without an answer */}
+      {agent.failure && agent.state !== 'thinking' && agent.state !== 'tool_calling' && (
+        <div
+          className="mb-3 px-2 py-1.5 rounded text-[10px] font-mono"
+          style={{ border: `1px solid ${COLORS.error}`, color: COLORS.error }}
+        >
+          {agent.failure.reason === 'refusal'
+            ? `Refused${agent.failure.category ? ` (${agent.failure.category})` : ''}`
+            : 'The turn ended on an API error'}
+          {agent.failure.explanation && <div className="mt-1 opacity-75">{agent.failure.explanation}</div>}
         </div>
       )}
 
