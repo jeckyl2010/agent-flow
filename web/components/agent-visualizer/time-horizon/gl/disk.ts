@@ -6,6 +6,7 @@
  */
 import { COLORS } from '@/lib/colors'
 import { formatDuration, type TimeHorizon, type TimeKind } from '@/lib/time-horizon'
+import { compactionLabel } from '@/lib/compaction'
 import {
   HOLE_R, KIND_COLOR, MATTER, R_IN, R_OUT, SAMPLES, U_NOW, spiral,
   type Hover, type Mote, type SceneInput, type View,
@@ -29,6 +30,7 @@ export function createDisk(v: View, wake: (ms: number) => void) {
   /** When each turn's hexagon first appeared while the view was open, by turn start: it pops in */
   const poppedAt = new Map<number, number>()
   let seenStarts: Set<number> | undefined
+  let seenCompactions: Set<number> | undefined
   /** The disk's beaming at each sample: fixed by the spiral */
   const beam = Array.from({ length: SAMPLES + 1 }, (_, i) => v.beaming(spiral(i / SAMPLES).theta))
 
@@ -188,6 +190,8 @@ export function createDisk(v: View, wake: (ms: number) => void) {
       if (intensity > 0) p.fill(hexPoints(x, y, size * 0.45 * intensity, -spin * 1.5), COLORS.holoBright, Math.min(1, 0.35 + 0.5 * intensity), false)
     }
 
+    drawCompactions(p, h, now)
+
     const size = labelSize()
     // Back toward the rim: how long ago
     const back = tickStep(h.elapsed)
@@ -208,6 +212,47 @@ export function createDisk(v: View, wake: (ms: number) => void) {
         p.text(`T+${span(t)}`, x, y, size, false, 'center', COLORS.horizonLight + 'aa')
       }
     }
+  }
+
+  /** A circle's outline, as a closed path */
+  function ring(p: Painter, x: number, y: number, radius: number, from: number, to: number, width: number, color: string, alpha: number) {
+    const steps = Math.max(8, Math.ceil(((to - from) / (Math.PI * 2)) * 40))
+    p.path()
+    for (let i = 0; i <= steps; i++) {
+      const a = from + ((to - from) * i) / steps
+      p.to(x + radius * Math.cos(a), y + radius * Math.sin(a), width, color, alpha)
+    }
+    p.stroke(false, false)
+  }
+
+  /** Compactions where they happened on the disk: a small wormhole each, a dark throat in a
+   *  violet rim with starlight bent round it; the latest says what it did. One that happens while
+   *  the view is open opens with a ring */
+  function drawCompactions(p: Painter, h: TimeHorizon, now: number) {
+    const opening = seenCompactions === undefined
+    seenCompactions ??= new Set()
+    h.compactions.forEach((c, i) => {
+      if (!seenCompactions!.has(c.time)) {
+        seenCompactions!.add(c.time)
+        if (!opening) { poppedAt.set(-1 - c.time, now); wake(1500) }
+      }
+      const { theta, r } = spiral(v.pastU(h, c.time))
+      const [x, y] = v.project(r, theta)
+      const s = v.scale
+      const poppedFrom = poppedAt.get(-1 - c.time)
+      const pop = poppedFrom !== undefined ? Math.max(0, 1 - (now - poppedFrom) / 1400) : 0
+      const spin = v.reducedMotion ? 0 : now * 0.0012
+      p.glow(x, y, (16 + pop * 30) * s, COLORS.wormholeGlow, 0.55, true)
+      if (pop > 0) ring(p, x, y, (7 + (1 - pop) * 46) * s, 0, Math.PI * 2, 1.5, COLORS.wormholeRim, pop * 0.8)
+      p.disc(x, y, 5.5 * s, COLORS.wormholeCore, 1, false)
+      ring(p, x, y, 5.5 * s, 0, Math.PI * 2, 1.4, COLORS.wormholeRim, 1)
+      for (let k = 0; k < 2; k++) {
+        const a0 = spin + k * Math.PI
+        ring(p, x, y, 8.5 * s, a0, a0 + 1.1, 1.1, COLORS.horizonLight, 0.7)
+      }
+      // Below and to the right: now's label sits above the disk here
+      if (i === h.compactions.length - 1) p.text(`⟲ ${compactionLabel(c)}`, x + 10 * s, y + 16 * s, labelSize(), false, 'left', COLORS.wormholeRim)
+    })
   }
 
   function drawNow(p: Painter, input: SceneInput, now: number) {

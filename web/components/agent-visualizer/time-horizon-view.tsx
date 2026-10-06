@@ -1,6 +1,7 @@
 'use client'
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { compactionLabel } from '@/lib/compaction'
 import { Z, type Agent, type SimulationEvent } from '@/lib/agent-types'
 import { FRAME_RATE } from '@/lib/canvas-constants'
 import { frameLimiter } from '@/lib/frame-limiter'
@@ -57,6 +58,14 @@ function HorizonCanvas({ input, agents }: { input: SceneInput; agents: Map<strin
   const [overShip, setOverShip] = useState(false)
   /** The subagent whose card is open, by its run's key, and where it was clicked */
   const [shipCard, setShipCard] = useState<(Placed & { key: string }) | undefined>()
+
+  // A compaction while the view is open: the hole flares and throws off gas, the detail swallowed
+  const compactions = input.horizon.compactions.length
+  const compactionsSeen = useRef(compactions)
+  useEffect(() => {
+    if (compactions > compactionsSeen.current) sceneRef.current?.pulse()
+    compactionsSeen.current = compactions
+  }, [compactions])
   /** The canvas's size, read when a card opens: cards keep inside it */
   const boundsNow = (): [number, number] => [canvasRef.current?.clientWidth ?? 0, canvasRef.current?.clientHeight ?? 0]
 
@@ -356,8 +365,13 @@ function HoleInsights({ h, agents, consumption, at, bounds, onClose }: {
           )
         })()}
         <Reading label="CONTEXT" value={consumption ? `${Math.round(consumption.fill * 100)}% full` : 'steady'}
-          note={consumption ? `Full in ~${formatDuration(consumption.eta)}, at ${formatCount(consumption.rate)} tokens a minute` : 'Not growing: no inspiral'}
+          note={consumption ? `${h.compactThreshold ? 'Compacts' : 'Full'} in ~${formatDuration(consumption.eta)}, at ${formatCount(consumption.rate)} tokens a minute` : 'Not growing: no inspiral'}
           color={COLORS.timePermission} />
+        {h.compactions.length > 0 && (
+          <Reading label="WORMHOLES" value={`${h.compactions.length} jump${h.compactions.length === 1 ? '' : 's'}`}
+            note={`Latest ${compactionLabel(h.compactions.at(-1)!)}: the detail before it is gone`}
+            color={COLORS.wormholeRim} />
+        )}
       </div>
       <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.holoBorder08}` }}>
         <div className="text-[8.5px] tracking-[0.2em] mb-1.5" style={{ color: COLORS.textMuted }}>RECORDS</div>
@@ -432,7 +446,8 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
     for (const a of agents.values()) if (a.isMain) return a.tokensMax
     return 0
   }, [agents])
-  const consumption = predictConsumption(h.context, contextWindow, currentTime)
+  // Its detail is compacted away at the threshold Claude Code measured, short of the window's edge
+  const consumption = predictConsumption(h.context, h.compactThreshold ?? contextWindow, currentTime)
   const dilation = parallelism(h)
   const cacheLeft = h.cache ? h.cache.expiresAt - currentTime : 0
   const cacheWarm = cacheLeft > 0
@@ -539,11 +554,11 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
         <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.holoBorder08}` }}>
           <div className="text-[9px] tracking-[0.2em]" style={{ color: COLORS.textMuted }}>EVENT HORIZON</div>
           <div className="mt-1 text-[12px]" style={{ color: consumption ? COLORS.timePermission : COLORS.textPrimary }}>
-            {consumption ? `Context full in ~${formatDuration(consumption.eta)}` : 'Context steady'}
+            {consumption ? `Context ${h.compactThreshold ? 'compacts' : 'full'} in ~${formatDuration(consumption.eta)}` : 'Context steady'}
           </div>
           <div className="text-[9px] leading-snug mt-0.5" style={{ color: COLORS.textDim }}>
             {consumption
-              ? `${Math.round(consumption.fill * 100)}% of the context window, growing ${formatCount(consumption.rate)} tokens a minute: then it compacts, and the detail is gone`
+              ? `${Math.round(consumption.fill * 100)}% of the way to ${h.compactThreshold ? 'the compaction point' : 'the context window’s edge'}, growing ${formatCount(consumption.rate)} tokens a minute: then it compacts, and the detail is gone`
               : 'Not growing lately, so nothing is falling in'}
           </div>
         </div>

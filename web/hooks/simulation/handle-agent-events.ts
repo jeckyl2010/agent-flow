@@ -169,12 +169,14 @@ export function handlePermissionRequested(
   // The PermissionRequest hook says what for; the Notification hook and the transcript only that it waits
   const tool = asString(payload.tool)
   const detail = tool ? asString(payload.message, tool) : undefined
+  // Why it asks, where the bridge mod said: the organization's requirement, or the rule
+  const why = asString(payload.why) || undefined
   if (agent.state === 'waiting_permission') {
     // The same wait, reported again by another source: keep one block, and the most precise detail
-    if (detail) state.agents.set(agentName, { ...agent, pendingPermission: detail })
+    if (detail) state.agents.set(agentName, { ...agent, pendingPermission: detail, permissionWhy: why ?? agent.permissionWhy })
     return
   }
-  state.agents.set(agentName, { ...agent, state: 'waiting_permission', pendingPermission: detail })
+  state.agents.set(agentName, { ...agent, state: 'waiting_permission', pendingPermission: detail, permissionWhy: why })
 
   const entry = state.timelineEntries.get(agentName)
   if (entry) {

@@ -48,6 +48,8 @@ export function useAudioEffects(
         case 'tool_start':    audio.playToolStart(); break
         case 'tool_complete': audio.playToolEnd(); break
         case 'tool_error':    audio.playError(); break
+        case 'compaction_open': audio.playWormholeOpen(); break
+        case 'compaction_jump': audio.playWormholeJump(t.delay); break
       }
     }
   }, [agents, toolCalls, isReviewing])

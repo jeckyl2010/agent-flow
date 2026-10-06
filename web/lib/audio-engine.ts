@@ -136,6 +136,69 @@ export class AudioEngine {
     osc.stop(now + 0.25)
   }
 
+  /** A low swell — a compaction begins: the wormhole opens */
+  playWormholeOpen() {
+    this.ensureContext()
+    if (!this.ctx || !this.masterGain) return
+
+    const now = this.ctx.currentTime
+    for (const [freq, detune] of [[55, 0], [82.4, 6], [110, -5]] as const) {
+      const osc = this.ctx.createOscillator()
+      const gain = this.ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      osc.detune.value = detune
+      gain.gain.setValueAtTime(0.001, now)
+      gain.gain.linearRampToValueAtTime(0.035, now + 0.9)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 2)
+      osc.connect(gain)
+      gain.connect(this.masterGain)
+      osc.start(now)
+      osc.stop(now + 2)
+    }
+  }
+
+  /** A falling sweep into a soft organ chord — the compaction jumps: time folds, and the
+   *  conversation goes on from its summary */
+  playWormholeJump(delay = 0) {
+    this.ensureContext()
+    if (!this.ctx || !this.masterGain) return
+
+    const now = this.ctx.currentTime + delay
+    const sweep = this.ctx.createOscillator()
+    const sweepGain = this.ctx.createGain()
+    sweep.type = 'triangle'
+    sweep.frequency.setValueAtTime(880, now)
+    sweep.frequency.exponentialRampToValueAtTime(55, now + 0.45)
+    sweepGain.gain.setValueAtTime(0.001, now)
+    sweepGain.gain.linearRampToValueAtTime(0.05, now + 0.05)
+    sweepGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5)
+    sweep.connect(sweepGain)
+    sweepGain.connect(this.masterGain)
+    sweep.start(now)
+    sweep.stop(now + 0.5)
+
+    // A2, E3, A3, C#4: an organ's open chord, swelling in as the flash fades
+    const chordAt = now + 0.42
+    for (const freq of [110, 164.81, 220, 277.18]) {
+      for (const harmonic of [1, 2]) {
+        const osc = this.ctx.createOscillator()
+        const gain = this.ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.value = freq * harmonic
+        const peak = harmonic === 1 ? 0.018 : 0.006
+        gain.gain.setValueAtTime(0.001, chordAt)
+        gain.gain.linearRampToValueAtTime(peak, chordAt + 0.35)
+        gain.gain.setValueAtTime(peak, chordAt + 0.9)
+        gain.gain.exponentialRampToValueAtTime(0.001, chordAt + 2.6)
+        osc.connect(gain)
+        gain.connect(this.masterGain)
+        osc.start(chordAt)
+        osc.stop(chordAt + 2.6)
+      }
+    }
+  }
+
   dispose() {
     if (this.ctx) {
       this.ctx.close()

@@ -98,10 +98,12 @@ export interface TopBarProps {
   showCostOverlay: boolean
   showTimeline: boolean
   showHorizon: boolean
+  showWormholeLog: boolean
   isMuted: boolean
   onTogglePanel: (panel: 'files' | 'transcript' | 'cost') => void
   onToggleTimeline: () => void
   onToggleHorizon: () => void
+  onToggleWormholeLog: () => void
   onToggleMute: () => void
 }
 
@@ -110,8 +112,8 @@ export const TopBar = memo(function TopBar({
   onSelectSession, onCloseSession,
   isVSCode, connectionStatus,
   agentCount, totalTokens, totalCost, isCostEstimate,
-  showFileAttention, showTranscript, showCostOverlay, showTimeline, showHorizon, isMuted,
-  onTogglePanel, onToggleTimeline, onToggleHorizon, onToggleMute,
+  showFileAttention, showTranscript, showCostOverlay, showTimeline, showHorizon, showWormholeLog, isMuted,
+  onTogglePanel, onToggleTimeline, onToggleHorizon, onToggleWormholeLog, onToggleMute,
 }: TopBarProps) {
   return (
     <div className="absolute top-3 left-3 right-3 flex items-center gap-4 font-mono text-[10px]" style={{ zIndex: Z.topBar }}>
@@ -167,6 +169,13 @@ export const TopBar = memo(function TopBar({
           activeColor={{ bg: COLORS.horizonActiveBg, text: COLORS.horizonLight }}
         >
           Horizon
+        </ToggleButton>
+        <ToggleButton
+          active={showWormholeLog}
+          onClick={onToggleWormholeLog}
+          activeColor={{ bg: COLORS.wormholeActiveBg, text: COLORS.wormholeRim }}
+        >
+          ⟲ Wormhole
         </ToggleButton>
         <ToggleButton active={!isMuted} onClick={onToggleMute} style={{ border: `1px solid ${COLORS.toggleBorder}` }}>
           {isMuted ? <MutedIcon /> : <UnmutedIcon />}

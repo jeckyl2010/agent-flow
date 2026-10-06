@@ -45,8 +45,13 @@ export interface TimeHorizon {
   emissions: Emission[]
   /** Each turn: your prompt, and what it set off */
   turnLog: Turn[]
-  /** The main agent's context after each of its requests, tokens: it grows until the window fills */
+  /** The main agent's context after each of its requests since its last compaction, tokens: it
+   *  grows until it is compacted again */
   context: ContextSample[]
+  /** The fill at which Claude Code compacts the main agent's context, as it measured it */
+  compactThreshold?: number
+  /** The main agent's compactions while Agent Flow watched, in order: each a wormhole on the disk */
+  compactions: CompactionMark[]
   /** Each subagent the session sent out, in order */
   subagents: SubagentRun[]
 }
@@ -81,6 +86,13 @@ export interface Turn {
   /** Tool calls the main agent made */
   tools: number
   outputTokens: number
+}
+
+export interface CompactionMark {
+  time: number
+  trigger?: string
+  tokensBefore?: number
+  tokensAfter?: number
 }
 
 export interface ContextSample {
@@ -127,6 +139,8 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
   const emissions: Emission[] = []
   const turnLog: Turn[] = []
   const context: ContextSample[] = []
+  let compactThreshold: number | undefined
+  const compactions: CompactionMark[] = []
   const subagents: SubagentRun[] = []
   /** The run of each subagent still out, by name */
   const out = new Map<string, SubagentRun>()
@@ -259,6 +273,21 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
       case 'agent_idle':
         waitingPermission = false
         break
+      case 'session_measure':
+        compactThreshold = num(p.compactThreshold) || compactThreshold
+        break
+      case 'context_compaction':
+        // What grew before is gone: the fit starts again from what the compaction left
+        if (p.phase === 'end' && p.isHistory !== true) {
+          compactions.push({
+            time: e.time, trigger: str(p.trigger) || undefined,
+            tokensBefore: typeof p.tokensBefore === 'number' ? p.tokensBefore : undefined,
+            tokensAfter: typeof p.tokensAfter === 'number' ? p.tokensAfter : undefined,
+          })
+          context.length = 0
+          if (num(p.tokensAfter) > 0) context.push({ time: e.time, tokens: num(p.tokensAfter) })
+        }
+        break
       case 'model_step': {
         const usage = (p.usage ?? {}) as Record<string, unknown>
         const written = num(usage.cache_creation_input_tokens)
@@ -294,7 +323,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
     }
   }
 
-  return { totals, segments, elapsed: Math.max(0, now - start), start, turns, cache, emissions, turnLog, context, subagents }
+  return { totals, segments, elapsed: Math.max(0, now - start), start, turns, cache, emissions, turnLog, context, compactThreshold, compactions, subagents }
 }
 
 /** `1:02:03`, or `2:03` under an hour */

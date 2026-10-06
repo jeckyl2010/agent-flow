@@ -286,6 +286,42 @@ export const HEARTBEAT = {
   echoDelay: 0.09,
 } as const
 
+/**
+ * A compaction drawn as a wormhole at the agent: it opens while Claude Code summarizes, the
+ * conversation spiralling into its throat, then jumps (collapses, flashes) and echoes outward.
+ * Radii are in node radii; times in seconds.
+ */
+export const WORMHOLE = {
+  /** The throat, and how far out the spiral arms reach */
+  throat: 1.3,
+  reach: 4.2,
+  /** Seconds to open; a compaction only seen ended (a transcript) opens this long before it jumps */
+  open: 0.9,
+  /** Seconds from the jump to the echoes fading */
+  jump: 3.4,
+  /** Seconds a skipped one takes to close */
+  close: 0.7,
+  /** Spiral arms, the light on each, and how tightly they wind (radians per e-fold of radius) */
+  arms: 5,
+  armDots: 16,
+  winding: 2.4,
+  /** Turns a second */
+  spin: 0.22,
+  /** Fragments falling in, and the seconds each takes from the rim of the reach to the throat */
+  fragments: 26,
+  fallTime: 1.7,
+  /** The lensed arcs of starlight orbiting the rim */
+  arcs: 3,
+  /** The jump: the collapse's share of it, then the flash's, and the echoes of the node */
+  collapse: 0.16,
+  flash: 0.1,
+  echoes: 3,
+  echoDelay: 0.16,
+  shockTravel: 7,
+  /** The label's rise, px */
+  labelRise: 26,
+} as const
+
 /** The chip under an agent naming the model and effort of its latest request */
 export const MODEL_TAG = {
   fontSize: 6.5,
