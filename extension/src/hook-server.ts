@@ -47,6 +47,9 @@ interface HookPayload {
   /** The most permissive verdict the organization lets the tool reach (mod only): `ask` when its
    *  administrators require an approval */
   ceiling?: string
+  /** Why the check asked, and the settings rule that decided (mod only) */
+  reason?: string
+  rule?: string
   // Notification
   notification_type?: string
   message?: string
@@ -78,6 +81,23 @@ interface HookPayload {
   agent_name?: string
   /** SubagentStop (mod only): the report the subagent handed back */
   answer?: string
+  // Stop (mod only): what the API said of a refusal that ended the turn
+  refusal?: { category: string | null; explanation: string | null }
+  // SessionMeasure (mod only): the main conversation's context window, the fill auto-compaction
+  // runs at, and the rate-limit windows
+  context_window?: number
+  compact_threshold?: number
+  rate_limits?: Array<{ kind: string; percentUsed: number; resetsAt?: string }>
+  // Compaction (mod only): as it starts, and as it ends or is skipped
+  phase?: 'start' | 'end' | 'skipped'
+  trigger?: string
+  tokens_before?: number
+  tokens_after?: number
+  duration_ms?: number
+  // AgentMessage (mod only): a message the model sent another agent, and the recipient's agent id
+  // (absent for the main agent)
+  to_agent_id?: string
+  text?: string
   // AgentStatus (mod only): an agent's state as `$.agent.list()` gives it: running, idle, waiting...
   status?: string
   // Generic
@@ -104,6 +124,14 @@ interface SessionHookState {
   /** Each agent's measured usage so far (by name), per model: sent whole with every request, so
    *  a page that connects late still shows it all */
   usageTotals: Map<string, UsageTotals>
+}
+
+/** Why a permission dialog asks, in a few words: the organization's requirement, the settings
+ *  rule, or the check's own reason (mod only) */
+function permissionWhy(payload: HookPayload): string | undefined {
+  if (payload.ceiling === 'ask') return 'Your organization requires approval'
+  if (payload.rule) return `Rule ${payload.rule}`
+  return payload.reason
 }
 
 export class HookServer implements vscode.Disposable {
@@ -254,6 +282,15 @@ export class HookServer implements vscode.Disposable {
         break
       case 'AgentStatus':
         this.handleAgentStatus(payload)
+        break
+      case 'SessionMeasure':
+        this.handleSessionMeasure(payload)
+        break
+      case 'Compaction':
+        this.handleCompaction(payload)
+        break
+      case 'AgentMessage':
+        this.handleAgentMessage(payload)
         break
     }
   }
@@ -457,8 +494,9 @@ export class HookServer implements vscode.Disposable {
         agent: this.resolveAgentName(payload),
         tool: toolName,
         args,
-        message: `${payload.ceiling === 'ask' ? '[org approval] ' : ''}${toolName}: ${args}`.slice(0, PREVIEW_MAX),
-        title: payload.ceiling === 'ask' ? 'Your organization requires approval' : 'Permission needed',
+        message: `${toolName}: ${args}`.slice(0, PREVIEW_MAX),
+        title: 'Permission needed',
+        ...(permissionWhy(payload) ? { why: permissionWhy(payload) } : {}),
       },
     }, payload.session_id)
   }
@@ -480,6 +518,18 @@ export class HookServer implements vscode.Disposable {
   }
 
   private handleStop(payload: HookPayload): void {
+    // A turn that ended on a refusal or an API error, not with an answer (mod only)
+    if (payload.reason === 'refusal' || payload.reason === 'error') {
+      this.emit({
+        time: this.elapsedSeconds(payload.session_id),
+        type: 'turn_failed',
+        payload: {
+          agent: ORCHESTRATOR_NAME, reason: payload.reason,
+          ...(payload.refusal?.category ? { category: payload.refusal.category } : {}),
+          ...(payload.refusal?.explanation ? { explanation: payload.refusal.explanation.slice(0, MESSAGE_MAX) } : {}),
+        },
+      }, payload.session_id)
+    }
     this.emit({
       time: this.elapsedSeconds(payload.session_id),
       type: 'agent_complete',
@@ -554,6 +604,56 @@ export class HookServer implements vscode.Disposable {
       time,
       type: 'context_update',
       payload: { agent, tokens, isMeasured: true },
+    }, payload.session_id)
+  }
+
+  /** The main conversation's context window as the engine has it, where the UI would guess it from
+   *  the model's family; the fill auto-compaction runs at; and how much of each rate-limit window
+   *  is used. */
+  private handleSessionMeasure(payload: HookPayload): void {
+    if (!payload.context_window) return
+    this.emit({
+      time: this.elapsedSeconds(payload.session_id),
+      type: 'session_measure',
+      payload: {
+        agent: ORCHESTRATOR_NAME,
+        contextWindow: payload.context_window,
+        ...(payload.compact_threshold ? { compactThreshold: payload.compact_threshold } : {}),
+        rateLimits: (payload.rate_limits ?? []).map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
+      },
+    }, payload.session_id)
+  }
+
+  /** A conversation compacted: as it starts, and as it ends, with the context it left. */
+  private handleCompaction(payload: HookPayload): void {
+    if (payload.agent_id && !this.sessionState.get(payload.session_id)?.agentNames.has(payload.agent_id)) return
+    this.emit({
+      time: this.elapsedSeconds(payload.session_id),
+      type: 'context_compaction',
+      payload: {
+        agent: this.resolveAgentName(payload),
+        phase: payload.phase ?? 'end',
+        ...(payload.trigger ? { trigger: payload.trigger } : {}),
+        ...(payload.tokens_before !== undefined ? { tokensBefore: payload.tokens_before } : {}),
+        ...(payload.tokens_after !== undefined ? { tokensAfter: payload.tokens_after } : {}),
+        ...(payload.duration_ms !== undefined ? { durationMs: payload.duration_ms } : {}),
+        ...(payload.reason ? { reason: payload.reason } : {}),
+        at: new Date().toISOString(),
+      },
+    }, payload.session_id)
+  }
+
+  /** A message one agent sent another (SendMessage) */
+  private handleAgentMessage(payload: HookPayload): void {
+    if (!payload.text) return
+    const to = payload.to_agent_id
+      ? this.sessionState.get(payload.session_id)?.agentNames.get(payload.to_agent_id)
+      : ORCHESTRATOR_NAME
+    if (!to) return
+    this.emit({
+      time: this.elapsedSeconds(payload.session_id),
+      type: 'agent_message',
+      payload: { from: this.resolveAgentName(payload), to, text: payload.text.slice(0, MESSAGE_MAX) },
     }, payload.session_id)
   }
 

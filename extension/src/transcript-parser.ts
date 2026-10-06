@@ -6,7 +6,7 @@
  */
 
 import {
-  AgentEvent, PendingToolCall, WatchedSession,
+  AgentEvent, CompactionRecord, PendingToolCall, WatchedSession,
   TranscriptEntry, ToolUseBlock, ToolResultBlock,
   emitSubagentSpawn,
 } from './protocol'
@@ -41,6 +41,40 @@ export interface TranscriptParserDelegate {
 /** Type guard: check if a value is a non-null object */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object'
+}
+
+/** The compaction a transcript line records, or undefined for any other line */
+function compactBoundary(line: Record<string, unknown>): CompactionRecord | undefined {
+  if (line.type !== 'system' || line.subtype !== 'compact_boundary') return undefined
+  const meta = isRecord(line.compactMetadata) ? line.compactMetadata : {}
+  const num = (v: unknown) => (typeof v === 'number' ? v : undefined)
+  return {
+    trigger: typeof meta.trigger === 'string' ? meta.trigger : undefined,
+    tokensBefore: num(meta.preTokens),
+    tokensAfter: num(meta.postTokens),
+    durationMs: num(meta.durationMs),
+    at: typeof line.timestamp === 'string' ? line.timestamp : undefined,
+  }
+}
+
+/** A compaction as the UI takes it: one that ended */
+export function compactionPayload(agent: string, c: CompactionRecord, isHistory = false): Record<string, unknown> {
+  return {
+    agent, phase: 'end',
+    ...(c.trigger ? { trigger: c.trigger } : {}),
+    ...(c.tokensBefore !== undefined ? { tokensBefore: c.tokensBefore } : {}),
+    ...(c.tokensAfter !== undefined ? { tokensAfter: c.tokensAfter } : {}),
+    ...(c.durationMs !== undefined ? { durationMs: c.durationMs } : {}),
+    at: c.at ?? new Date().toISOString(),
+    // From before Agent Flow watched: listed, not shown happening
+    ...(isHistory ? { isHistory: true } : {}),
+  }
+}
+
+/** What the context holds after a compaction: the system prompt, and the summary that follows it */
+function resetBreakdown(session: WatchedSession): void {
+  const bd = session.contextBreakdown
+  bd.userMessages = bd.toolResults = bd.reasoning = bd.subagentResults = 0
 }
 
 /** Safely extract trimmed text from a text block */
@@ -110,6 +144,12 @@ export class TranscriptParser {
       parsed = JSON.parse(line.trim()) as Record<string, unknown>
     } catch (err) {
       log.debug('Skipping unparseable line:', err)
+      return
+    }
+
+    const compaction = compactBoundary(parsed)
+    if (compaction) {
+      this.handleCompaction(compaction, agentName, sessionId)
       return
     }
 
@@ -453,6 +493,22 @@ export class TranscriptParser {
    * 1. Build seenToolUseIds dedup set (prevents re-emitting old tool calls)
    * 2. Return all entries for catch-up emission
    */
+  /** A compaction as it is written: the context estimate starts over from the summary, which the
+   *  next line brings. The bridge mod reports a session's own, as it starts and ends */
+  private handleCompaction(compaction: CompactionRecord, agentName: string, sessionId?: string): void {
+    const session = sessionId ? this.delegate.getSession(sessionId) : undefined
+    if (session && agentName === ORCHESTRATOR_NAME) {
+      resetBreakdown(session)
+      this.delegate.emitContextUpdate(agentName, session, sessionId)
+    }
+    if (sessionId && isModSession(sessionId)) return
+    this.delegate.emit({
+      time: this.delegate.elapsed(sessionId),
+      type: 'context_compaction',
+      payload: compactionPayload(agentName, compaction),
+    }, sessionId)
+  }
+
   prescanExistingContent(filePath: string, size: number, session: WatchedSession): TranscriptEntry[] {
     if (size === 0) { return [] }
     const catchUpEntries: TranscriptEntry[] = []
@@ -465,6 +521,13 @@ export class TranscriptParser {
         if (!line.trim()) { continue }
         try {
           const entry = JSON.parse(line.trim()) as TranscriptEntry
+          // Everything before a compaction left the context: its estimate starts over
+          const compaction = compactBoundary(entry as unknown as Record<string, unknown>)
+          if (compaction) {
+            resetBreakdown(session)
+            session.pastCompactions.push(compaction)
+            continue
+          }
           // Build dedup sets for tool_use blocks and messages + accumulate token counts
           const isUser = entry.message?.role === 'user' || entry.message?.role === 'human'
           if (entry.message && Array.isArray(entry.message.content)) {
@@ -559,6 +622,15 @@ export class TranscriptParser {
   /** Emit message events for pre-existing transcript entries (catch-up on session detection).
    *  Only emits the last user message (the current turn), not the full history. */
   emitCatchUpEntries(entries: TranscriptEntry[], session: WatchedSession, sessionId: string): void {
+    // The compactions before it was watched, for the wormhole log
+    for (const compaction of session.pastCompactions) {
+      this.delegate.emit({
+        time: 0,
+        type: 'context_compaction',
+        payload: compactionPayload(ORCHESTRATOR_NAME, compaction, true),
+      }, sessionId)
+    }
+
     // Find the last user entry — that's the current turn
     let lastUserIndex = -1
     for (let i = entries.length - 1; i >= 0; i--) {

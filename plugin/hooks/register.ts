@@ -30,6 +30,8 @@ const QUEUE_MAX = 500
 const OUTPUT_INTERVAL_MS = 250
 /** The longest text sent per block, as the transcript parser cuts a message (MESSAGE_MAX) */
 const OUTPUT_MAX = 2_000
+/** What SendMessage calls the session's main agent: the lead's name in a team, or `main` */
+const LEAD_ADDRESSES = new Set(['team-lead', 'main'])
 /** A POST not answered by then is given up, so an instance that went away cannot stall the queue */
 const POST_TIMEOUT_MS = 1_000
 
@@ -51,6 +53,10 @@ const teammates = new Set<string>()
 /** agentId → the status last sent for it, from `$.agent.list()` */
 const statuses = new Map<string, string>()
 let statusTimer: { cancel(): void } | undefined
+/** The context window last measured, and the fill at which auto-compaction runs in it (absent when
+ *  it's off): the threshold is read again only when the window changes, as on a /model switch */
+let measuredWindow = 0
+let compactThreshold: number | undefined
 /** tool_use_id → the `ask` verdict its permission check returned, until the call ends */
 const asks = new Map<string, { tool: string; agentId?: string; reason?: string; rule?: string; ceiling?: string }>()
 /**
@@ -132,6 +138,8 @@ export const register: Register = on => {
     statuses.clear()
     statusTimer?.cancel()
     statusTimer = undefined
+    measuredWindow = 0
+    compactThreshold = undefined
     return next(e)
   })
 
@@ -228,7 +236,76 @@ export const register: Register = on => {
       agentTypes.delete(e.agentId)
       statuses.delete(e.agentId)
     } else {
-      send($, { hook_event_name: 'Stop', reason: e.reason, duration_ms: e.durationMs })
+      send($, {
+        hook_event_name: 'Stop', reason: e.reason, duration_ms: e.durationMs,
+        // What the API said of a refusal that ended the turn, the classifier's category and why
+        ...(e.reason === 'refusal' ? { refusal: e.refusal } : {}),
+      })
+    }
+    return next(e)
+  })
+
+  // The main conversation's context as the engine measured it, after each turn: its fill, the real
+  // window (where the UI would guess it from the model's family) and the rate-limit windows
+  on('session.measure', async ($, e, next) => {
+    const { context, rateLimits, changed } = e
+    if (changed.includes('context') && context.window !== measuredWindow) {
+      measuredWindow = context.window
+      // `summary` counts locally and sends nothing to the API
+      const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => undefined)
+      compactThreshold = usage?.context.breakdown?.autoCompactThreshold
+    }
+    if (changed.includes('context') || changed.includes('rateLimits')) {
+      send($, {
+        hook_event_name: 'SessionMeasure',
+        context_window: context.window,
+        ...(context.tokens !== undefined ? { context_tokens: context.tokens } : {}),
+        ...(compactThreshold !== undefined ? { compact_threshold: compactThreshold } : {}),
+        rate_limits: rateLimits,
+      })
+    }
+    return next(e)
+  })
+
+  // A compaction as it starts and ends: the UI shows it running (a summary can take half a minute)
+  // and the context it left. One computed ahead of time (`precompute`) changes nothing yet
+  on('session.compact', async ($, e, next) => {
+    if (e.trigger === 'precompute') return next(e)
+    const fields = { trigger: e.trigger, ...agentFields(e.agentId) }
+    send($, { hook_event_name: 'Compaction', phase: 'start', ...fields, messages_before: e.messages.length })
+    const startedAt = Date.now()
+    try {
+      const done = await next(e)
+      send($, done.skip !== undefined
+        ? { hook_event_name: 'Compaction', phase: 'skipped', ...fields, reason: done.skip }
+        : {
+            hook_event_name: 'Compaction', phase: 'end', ...fields,
+            messages_before: e.messages.length, messages_after: done.messages.length,
+            ...(done.tokensBefore !== undefined ? { tokens_before: done.tokensBefore } : {}),
+            ...(done.tokensAfter !== undefined ? { tokens_after: done.tokensAfter } : {}),
+            duration_ms: Date.now() - startedAt,
+          })
+      return done
+    } catch (error) {
+      send($, { hook_event_name: 'Compaction', phase: 'skipped', ...fields, reason: error instanceof Error ? error.message : String(error) })
+      throw error
+    }
+  })
+
+  // A message the model sends another agent (SendMessage), as the UI draws it between the two: the
+  // recipient by its agent id, or none for the main agent. A session elsewhere isn't drawn
+  on('session.send', async ($, e, next) => {
+    if (e.origin.kind === 'model') {
+      const to = e.to.replace(/ \[[^\]]*\]$/, '') // a listing's " [ref]"
+      const toAgentId = agentTypes.has(to) ? to
+        : LEAD_ADDRESSES.has(to) ? undefined
+        : (await $.agent.list().catch(() => [])).find(a => a.name === to || a.teammateId === to)?.id
+      if (toAgentId || LEAD_ADDRESSES.has(to)) {
+        send($, {
+          hook_event_name: 'AgentMessage', ...agentFields(e.agentId),
+          ...(toAgentId ? { to_agent_id: toAgentId } : {}), text: e.text.slice(0, OUTPUT_MAX),
+        })
+      }
     }
     return next(e)
   })
