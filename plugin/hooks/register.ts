@@ -206,8 +206,8 @@ export const register: Register = on => {
   on('agent.spawn', async ($, e, next) => {
     const spawned = await next(e)
     if (spawned.agentId) {
-      // Since 2.1.289 a teammate's spawn comes here too, with its name in the team; older engines
-      // leave these out
+      // Since 2.1.289 a teammate's spawn comes here too, with its name in the team, and since
+      // 2.1.292 a workflow script's, with its run and its place in it; older engines leave these out
       agentTypes.set(spawned.agentId, e.subagentType)
       if (e.isTeammate) teammates.add(spawned.agentId)
       send($, {
@@ -217,6 +217,7 @@ export const register: Register = on => {
         // absent when the main loop started it
         parent_agent_id: e.parentAgentId ?? toolAgents.get(e.tool_use_id),
         ...(e.isTeammate ? { is_teammate: true, agent_name: e.name } : {}),
+        ...(e.workflow ? { workflow_run_id: e.workflow.runId, workflow_agent_index: e.workflow.agentIndex } : {}),
       })
       watchStatuses($)
     }

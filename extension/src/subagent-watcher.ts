@@ -17,7 +17,7 @@ import { readNewFileLines } from './fs-utils'
 import { TranscriptParser } from './transcript-parser'
 import { handlePermissionDetection, PermissionDetectionDelegate } from './permission-detection'
 import { createLogger } from './logger'
-import { isModSession } from './mod-sessions'
+import { isModSession, reportedAgentName } from './mod-sessions'
 import { recordTranscriptUsage } from './transcript-usage'
 
 const log = createLogger('SubagentWatcher')
@@ -40,6 +40,11 @@ function resolveNameFromMeta(jsonlPath: string, fallbackIndex: number): string {
     if (name && name !== 'subagent') return name
   } catch { /* meta file may not exist for older Claude Code versions */ }
   return generateSubagentFallbackName('', fallbackIndex)
+}
+
+/** The agent's id from its transcript's file name, `agent-<id>.jsonl` */
+export function agentIdFromFile(jsonlPath: string): string | undefined {
+  return /^agent-(.+)\.jsonl$/.exec(path.basename(jsonlPath))?.[1]
 }
 
 /** Scan the subagents directory for new JSONL files and start tailing them */
@@ -83,13 +88,17 @@ function startWatchingSubagentFile(
   const session = delegate.getSession(sessionId)
   if (!session) return
 
-  // Resolve name from the meta file (deterministic, no queue race)
-  const agentName = resolveNameFromMeta(filePath, session.subagentWatchers.size + 1)
+  // The name the mod spawned it under, where it has; else from the meta file (deterministic, no
+  // queue race)
+  const agentId = agentIdFromFile(filePath)
+  const agentName = (agentId && reportedAgentName(sessionId, agentId))
+    || resolveNameFromMeta(filePath, session.subagentWatchers.size + 1)
   log.info(`Tailing subagent: ${path.basename(filePath)} as "${agentName}" (session ${sessionId.slice(0, SESSION_ID_DISPLAY)})`)
 
   const state: SubagentState = {
     watcher: null,
     fileSize: 0,
+    ...(agentId ? { agentId } : {}),
     agentName,
     pendingToolCalls: new Map(),
     seenToolUseIds: new Set(),
@@ -164,6 +173,8 @@ export function readSubagentNewLines(
   const result = readNewFileLines(filePath, state.fileSize)
   if (!result) return
   state.fileSize = result.newSize
+  // The mod's spawn can arrive after the file did: its lines then go under the name it gave
+  if (state.agentId) state.agentName = reportedAgentName(sessionId, state.agentId) ?? state.agentName
 
   // If inline progress events are handling this subagent, skip event emission
   // from the file watcher to avoid duplicates. We still advance fileSize above

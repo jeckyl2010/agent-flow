@@ -3,7 +3,7 @@ import * as vscode from 'vscode'
 import { AgentEvent, emitSubagentSpawn, type ModelUsage, type UsageTotals } from './protocol'
 import { addUsage, oneHourWrites, totalsPayload } from './transcript-usage'
 import {
-  ORCHESTRATOR_NAME, PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX, resolveSubagentChildName,
+  ORCHESTRATOR_NAME, PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX, resolveSubagentChildName, workflowAgentName,
   SESSION_ID_DISPLAY, FAILED_RESULT_MAX, HOOK_MAX_BODY_SIZE,
   SUBAGENT_ID_SUFFIX_LENGTH, HOOK_SERVER_HOST, HOOK_SERVER_NOT_STARTED,
   generateSubagentFallbackName,
@@ -11,7 +11,7 @@ import {
 import { summarizeInput, summarizeResult, extractFilePath, buildDiscovery } from './tool-summarizer'
 import { estimateTokenCost } from './token-estimator'
 import { createLogger } from './logger'
-import { markModSession, forgetModSession } from './mod-sessions'
+import { markModSession, forgetModSession, nameReportedAgent } from './mod-sessions'
 
 const log = createLogger('HookServer')
 
@@ -79,6 +79,9 @@ interface HookPayload {
   /** A teammate (agent teams), and its name in the team */
   is_teammate?: boolean
   agent_name?: string
+  /** A workflow script's agent (2.1.292+): its run, and its place among the run's agents from 1 */
+  workflow_run_id?: string
+  workflow_agent_index?: number
   /** SubagentStop (mod only): the report the subagent handed back */
   answer?: string
   // Stop (mod only): what the API said of a refusal that ended the turn
@@ -428,16 +431,25 @@ export class HookServer implements vscode.Disposable {
     const agentId = payload.agent_id
     if (!agentId) return
     const state = this.getOrCreateSession(payload.session_id)
-    // A teammate goes by its name in the team: what the others address it by
+    // As the web reads it (web/lib/workflow.ts asWorkflow): a place it would drop names no agent
+    const index = payload.workflow_agent_index
+    const workflow = typeof payload.workflow_run_id === 'string' && payload.workflow_run_id
+      && typeof index === 'number' && Number.isInteger(index) && index >= 1
+      ? { runId: payload.workflow_run_id, index }
+      : undefined
+    // A teammate goes by its name in the team: what the others address it by. A workflow's agents
+    // often share a task, so each goes by its place in the run as well
+    const task = resolveSubagentChildName({ description: payload.description, subagent_type: payload.agent_type })
     const childName = (payload.is_teammate && payload.agent_name)
-      || resolveSubagentChildName({ description: payload.description, subagent_type: payload.agent_type })
+      || (workflow ? workflowAgentName(task, workflow, state.agentNames.values()) : task)
     const parentName = (payload.parent_agent_id && state.agentNames.get(payload.parent_agent_id)) || ORCHESTRATOR_NAME
     state.agentNames.set(agentId, childName)
     state.agentParents.set(agentId, parentName)
+    nameReportedAgent(payload.session_id, agentId, childName) // what its transcript's lines go under
     emitSubagentSpawn({
       emit: (event, sessionId) => this.emit(event, sessionId),
       elapsed: sessionId => this.elapsedSeconds(sessionId),
-    }, parentName, childName, payload.description || childName, payload.session_id, payload.is_teammate === true)
+    }, parentName, childName, payload.description || childName, payload.session_id, { isTeammate: payload.is_teammate === true, workflow })
     if (payload.model) {
       state.models.set(childName, payload.model)
       this.emit({

@@ -5,6 +5,7 @@ import {
 } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { AGENT_SPAWN_DISTANCE } from '@/lib/canvas-constants'
+import { asWorkflow, latestOfRun, WORKFLOW_STEP_ANGLE } from '@/lib/workflow'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { edgeId, asString, asBoolean } from './types'
 
@@ -21,6 +22,7 @@ export function handleAgentSpawn(
   const model = typeof payload.model === 'string' ? payload.model : undefined
   const runtime = payload.runtime === 'codex' ? 'codex' as const : undefined
   const isTeammate = payload.isTeammate === true ? true : undefined
+  const workflow = asWorkflow(payload.workflow)
 
   // If the agent already exists (e.g. session resuming after inactivity),
   // reactivate it instead of replacing — preserves accumulated stats.
@@ -32,6 +34,8 @@ export function handleAgentSpawn(
       ...(task ? { task } : {}),
       ...(model ? { model, tokensMax: ctx.getContextWindowSize(model) } : {}),
       ...(runtime ? { runtime } : {}),
+      // A workflow run started again reuses its agents' names: they belong to the new run now
+      ...(workflow ? { workflow } : {}),
     })
     return
   }
@@ -48,8 +52,12 @@ export function handleAgentSpawn(
         }
       }
 
+      // A workflow's agents line up beside the one the run started before them
+      const runBefore = workflow && latestOfRun(state.agents.values(), parentId, workflow)
       let angle: number
-      if (siblingAngles.length === 0) {
+      if (runBefore) {
+        angle = Math.atan2(runBefore.y - parent.y, runBefore.x - parent.x) + WORKFLOW_STEP_ANGLE
+      } else if (siblingAngles.length === 0) {
         // First child: use hash-based angle
         const hash = name.split('').reduce((h, c) => ((h << 5) - h) + c.charCodeAt(0), 0)
         angle = (Math.abs(hash) % 360) * (Math.PI / 180)
@@ -83,6 +91,7 @@ export function handleAgentSpawn(
     x, y, vx: 0, vy: 0,
     pinned: false, isMain,
     ...(isTeammate ? { isTeammate } : {}),
+    ...(workflow ? { workflow } : {}),
     ...(runtime ? { runtime } : {}),
     ...(model ? { model } : {}),
     task,

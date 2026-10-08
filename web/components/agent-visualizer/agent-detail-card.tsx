@@ -1,6 +1,6 @@
 'use client'
 
-import { CARD, Z, type AgentState, type Compaction, type TurnFailure } from '@/lib/agent-types'
+import { CARD, Z, type AgentState, type Compaction, type TurnFailure, type WorkflowPlace } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName } from '@/lib/utils'
 import { compactionLabel } from '@/lib/compaction'
@@ -21,6 +21,7 @@ interface AgentDetailCardProps {
     pendingPermission?: string
     permissionWhy?: string
     isTeammate?: boolean
+    workflow?: WorkflowPlace
     compactions?: Compaction[]
     compactThreshold?: number
     failure?: TurnFailure
@@ -100,6 +101,11 @@ export function AgentDetailCard({
         <span>{agent.timeAlive.toFixed(1)}s alive</span>
         <span className="capitalize" style={{ color: stateColor }}>{agent.state}</span>
         {agent.isTeammate && <span style={{ color: COLORS.textMuted }}>teammate</span>}
+        {agent.workflow && (
+          <span style={{ color: COLORS.textMuted }} title={`Agent #${agent.workflow.index} of workflow run ${agent.workflow.runId}`}>
+            workflow
+          </span>
+        )}
       </div>
 
       {/* Current tool */}

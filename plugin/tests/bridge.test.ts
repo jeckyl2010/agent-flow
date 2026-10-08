@@ -163,6 +163,21 @@ test('a subagent started from a subagent names its parent', async ($, on) => {
   }))
 })
 
+test('a workflow script\'s agent is sent with its run and its place in it', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'wf-agent-2' }))
+
+  await $.agent.spawn({
+    tool_use_id: 'tu-wf', prompt: 'Review', description: 'Review a file', subagentType: 'general-purpose',
+    workflow: { runId: 'wf_abc', agentIndex: 2 },
+  } as never)
+  await clock.settle()
+
+  expect(posts.map(p => p.body).find(b => b.hook_event_name === 'SubagentStart')).toEqual(expect.objectContaining({
+    agent_id: 'wf-agent-2', workflow_run_id: 'wf_abc', workflow_agent_index: 2,
+  }))
+})
+
 test('a teammate is sent with its name, its states as they change, and its end from its status', async ($, on) => {
   const { clock, posts } = agentFlow(on)
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'mate-1', teammateId: 'researcher@team' }))

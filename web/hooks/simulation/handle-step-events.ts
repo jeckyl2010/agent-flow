@@ -2,7 +2,7 @@ import type { Agent, AgentSpend, ModelOutput, ModelStepPulse, ModelTag } from '@
 import type { InferenceSite } from '@/lib/inference-zone'
 import { effortColor } from '@/lib/effort'
 import { modelTagLabel } from '@/lib/utils'
-import { stepCost, cacheHitRatio, type StepUsage } from '@/lib/model-pricing'
+import { stepCost, totalCost, cacheHitRatio, type StepUsage } from '@/lib/model-pricing'
 import { HEARTBEAT } from '@/lib/canvas-constants'
 import { asString } from './types'
 import type { MutableEventState } from './process-event'
@@ -48,7 +48,8 @@ function spendFromTotals(v: unknown, isComplete: boolean): Omit<AgentSpend, 'las
       // Older relays sent no count per model: a single model made them all
       requests: typeof requests === 'number' ? requests : byModel.length === 1 ? steps : 0,
     })
-    spend.cost += stepCost(usage, model)
+    // Older relays keep no long-prompt part: all of it is priced at the standard card
+    spend.cost += totalCost(usage, model, asUsage((entry as { long_prompt?: unknown }).long_prompt))
     spend.input += usage.input_tokens
     spend.output += usage.output_tokens
     spend.cacheRead += usage.cache_read_input_tokens
