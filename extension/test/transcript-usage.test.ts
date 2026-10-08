@@ -68,6 +68,24 @@ describe('recordTranscriptUsage', () => {
   })
 })
 
+describe('long prompts', () => {
+  it('keeps the usage of requests whose prompts passed 100K tokens apart as well', () => {
+    const s = session()
+    const request = (id: string, cacheRead: number) => ({
+      type: 'assistant',
+      message: { id, model: 'claude-haiku-5-5', usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 } },
+    })
+    recordTranscriptUsage(request('short', 60_000), 'orchestrator', s)
+    assert.equal(s.usageTotals.get('orchestrator')!.byModel.get('claude-haiku-5-5')!.long_prompt, undefined)
+    recordTranscriptUsage(request('long', 120_000), 'orchestrator', s)
+    const sum = s.usageTotals.get('orchestrator')!.byModel.get('claude-haiku-5-5')!
+    assert.equal(sum.cache_read_input_tokens, 180_000)
+    assert.deepEqual(sum.long_prompt, {
+      input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 120_000, cache_creation_input_tokens: 0, cache_creation_1h_input_tokens: 0,
+    })
+  })
+})
+
 describe('modelStepPayload', () => {
   it('carries the request and the totals the way the bridge mod sends them', () => {
     const s = session()

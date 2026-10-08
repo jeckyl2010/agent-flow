@@ -116,6 +116,12 @@ export type TranscriptContentBlock =
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
+/** Where a workflow script's agent stands: its run, and its place among the run's agents from 1 */
+export interface WorkflowPlace {
+  runId: string
+  index: number
+}
+
 /** Minimal emitter interface used by {@link emitSubagentSpawn}. */
 export interface AgentEventEmitter {
   emit(event: AgentEvent, sessionId?: string): void
@@ -134,7 +140,7 @@ export function emitSubagentSpawn(
   child: string,
   task: string,
   sessionId?: string,
-  isTeammate = false,
+  { isTeammate = false, workflow }: { isTeammate?: boolean; workflow?: WorkflowPlace } = {},
 ): void {
   emitter.emit({
     time: emitter.elapsed(sessionId),
@@ -144,7 +150,7 @@ export function emitSubagentSpawn(
   emitter.emit({
     time: emitter.elapsed(sessionId),
     type: 'agent_spawn',
-    payload: { name: child, parent, task, ...(isTeammate ? { isTeammate: true } : {}) },
+    payload: { name: child, parent, task, ...(isTeammate ? { isTeammate: true } : {}), ...(workflow ? { workflow } : {}) },
   }, sessionId)
 }
 
@@ -163,6 +169,8 @@ export interface PendingToolCall {
 export interface SubagentState {
   watcher: import('fs').FSWatcher | null
   fileSize: number
+  /** From the transcript's file name, `agent-<id>.jsonl`, the id the mod knows the agent by */
+  agentId?: string
   agentName: string
   pendingToolCalls: Map<string, PendingToolCall>
   seenToolUseIds: Set<string>
@@ -183,12 +191,17 @@ export interface ModelUsage {
   cache_creation_1h_input_tokens?: number
 }
 
+/** A prompt (a request's whole input, cache included) longer than this is billed at a model's
+ *  long-prompt rate card where it has one (Haiku 5.5); the web's model-pricing.ts has the cards */
+export const LONG_PROMPT_TOKENS = 100_000
+
 /** An agent's model requests so far: how many, and their usage summed per model */
 export interface UsageTotals {
   steps: number
   /** Usage summed per model, with how many requests each made: the environmental impacts count
-   *  a start-up cost per request */
-  byModel: Map<string, ModelUsage & { requests: number }>
+   *  a start-up cost per request. `long_prompt` is the part of it whose prompts were longer than
+   *  LONG_PROMPT_TOKENS, absent until one is */
+  byModel: Map<string, ModelUsage & { requests: number; long_prompt?: ModelUsage }>
 }
 
 export interface WatchedSession {

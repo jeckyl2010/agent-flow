@@ -241,11 +241,31 @@ const MODEL_STEPS: SimulationEvent[] = [
   step(63.8, 'orchestrator', 'end_turn', 240, 2100, 47800, 600, 'xhigh'),
 ]
 
-// ── What the bridge mod adds on Claude Code 2.1.290 ──────────────────────────
+// ── What the bridge mod adds on Claude Code 2.1.290 and later ────────────────
 // The measured window and rate limits, compactions (a wormhole each, and the log's history), the
-// advisor, agents messaging each other, and a permission that says why it asks.
+// advisor, agents messaging each other, a permission that says why it asks, and (2.1.292) a
+// workflow script's run of agents.
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
 const minutesAhead = (m: number) => new Date(Date.now() + m * 60_000).toISOString()
+
+const REVIEWED_FILES = ['src/services/stripe-adapter.ts', 'src/services/paypal-adapter.ts', 'src/services/payment-gateway.ts']
+const REVIEW_FINDINGS = ['No issues: errors map to PaymentError', 'Capture has no idempotency key: a retry can charge twice', 'Retries back off as they should']
+
+/** One agent of the review workflow's run: it reads its file, says what it found, and ends */
+function reviewAgent(file: string, index: number, start: number): SimulationEvent[] {
+  const name = `Review an adapter #${index}`
+  const finding = REVIEW_FINDINGS[index - 1]
+  return [
+    { time: start, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: name, task: 'Review an adapter' } },
+    { time: start, type: 'agent_spawn', payload: { name, parent: 'orchestrator', task: 'Review an adapter', model: 'claude-haiku-5-5', workflow: { runId: 'wf_7f3a', index } } },
+    { time: start + 1.2, type: 'tool_call_start', payload: { agent: name, tool: 'Read', args: file, inputData: { file_path: file } } },
+    { time: start + 1.5, type: 'tool_call_end', payload: { agent: name, tool: 'Read', result: `${file}: read`, tokenCost: 900 } },
+    step(start + 1.1, name, 'tool_use', 2400, 140, 0, 2000, 'medium', 'claude-haiku-5-5'),
+    step(start + 4.6, name, 'end_turn', 1200, 420, 4400, 0, 'medium', 'claude-haiku-5-5'),
+    { time: start + 4.8, type: 'subagent_return', payload: { child: name, parent: 'orchestrator', summary: finding } },
+    { time: start + 4.8, type: 'agent_complete', payload: { name } },
+  ]
+}
 
 const BRIDGE_EVENTS: SimulationEvent[] = [
   { time: 0.5, type: 'session_measure', payload: {
@@ -271,6 +291,11 @@ const BRIDGE_EVENTS: SimulationEvent[] = [
   { time: 18.2, type: 'context_update', payload: { agent: 'research-agent', tokens: 168_400, isMeasured: true } },
   { time: 18.3, type: 'context_compaction', payload: { agent: 'research-agent', phase: 'start', trigger: 'auto', at: minutesAgo(0) } },
   { time: 19.9, type: 'context_compaction', payload: { agent: 'research-agent', phase: 'end', trigger: 'auto', tokensBefore: 168_400, tokensAfter: 9_800, durationMs: 1_600, at: minutesAgo(0) } },
+
+  // A workflow script reviews each adapter, one Haiku 5.5 agent per file, while the tests are written
+  { time: 33.4, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Workflow', args: 'review-adapters', inputData: { name: 'review-adapters' } } },
+  ...REVIEWED_FILES.flatMap((file, i) => reviewAgent(file, i + 1, 34.0 + i * 0.6)),
+  { time: 42.6, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Workflow', result: '3 adapters reviewed: PayPal capture needs an idempotency key', tokenCost: 300 } },
 
   // The schema needs the new providers: a settings rule asks before any migration runs
   { time: 56.8, type: 'permission_requested', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx prisma migrate dev --name payment_providers', message: 'Bash: npx prisma migrate dev --name payment_providers', title: 'Permission needed', why: 'Rule Bash(npx prisma migrate:*)' } },

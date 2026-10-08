@@ -7,7 +7,7 @@
  * API measured: output tokens (which the environmental impacts are figured from) and prices.
  */
 
-import type { ModelUsage, UsageTotals, WatchedSession } from './protocol'
+import { LONG_PROMPT_TOKENS, type ModelUsage, type UsageTotals, type WatchedSession } from './protocol'
 
 export interface TranscriptStep {
   model: string
@@ -28,6 +28,16 @@ export function oneHourWrites(usage: Record<string, unknown>): number {
   return isRecord(c) && typeof c.ephemeral_1h_input_tokens === 'number' ? c.ephemeral_1h_input_tokens : 0
 }
 
+function sumUsage(a: ModelUsage | undefined, b: ModelUsage): ModelUsage {
+  return {
+    input_tokens: (a?.input_tokens ?? 0) + b.input_tokens,
+    output_tokens: (a?.output_tokens ?? 0) + b.output_tokens,
+    cache_read_input_tokens: (a?.cache_read_input_tokens ?? 0) + b.cache_read_input_tokens,
+    cache_creation_input_tokens: (a?.cache_creation_input_tokens ?? 0) + b.cache_creation_input_tokens,
+    cache_creation_1h_input_tokens: (a?.cache_creation_1h_input_tokens ?? 0) + (b.cache_creation_1h_input_tokens ?? 0),
+  }
+}
+
 /** Adds one request to an agent's totals, per model; returns the agent's totals */
 export function addUsage(all: Map<string, UsageTotals>, agentName: string, model: string, usage: ModelUsage): UsageTotals {
   let totals = all.get(agentName)
@@ -37,13 +47,13 @@ export function addUsage(all: Map<string, UsageTotals>, agentName: string, model
   }
   totals.steps++
   const sum = totals.byModel.get(model)
+  const prompt = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+  // Summed, the requests can't say which were long: those are kept apart as well, to be priced
+  const longPrompt = prompt > LONG_PROMPT_TOKENS ? sumUsage(sum?.long_prompt, usage) : sum?.long_prompt
   totals.byModel.set(model, {
-    input_tokens: (sum?.input_tokens ?? 0) + usage.input_tokens,
-    output_tokens: (sum?.output_tokens ?? 0) + usage.output_tokens,
-    cache_read_input_tokens: (sum?.cache_read_input_tokens ?? 0) + usage.cache_read_input_tokens,
-    cache_creation_input_tokens: (sum?.cache_creation_input_tokens ?? 0) + usage.cache_creation_input_tokens,
-    cache_creation_1h_input_tokens: (sum?.cache_creation_1h_input_tokens ?? 0) + (usage.cache_creation_1h_input_tokens ?? 0),
+    ...sumUsage(sum, usage),
     requests: (sum?.requests ?? 0) + 1,
+    ...(longPrompt ? { long_prompt: longPrompt } : {}),
   })
   return totals
 }

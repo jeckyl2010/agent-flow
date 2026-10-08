@@ -9,7 +9,13 @@ export const CLAUDE_FAMILIES: ReadonlyArray<{ name: string; context: number }> =
   { name: 'mythos', context: 1_000_000 },
   { name: 'opus',   context: 1_000_000 },
   { name: 'sonnet', context: 1_000_000 },
-  { name: 'haiku',  context: 200_000 },
+  { name: 'haiku',  context: 1_000_000 },
+]
+
+/** Versions whose window is smaller than their family's, checked before it */
+const SMALLER_WINDOWS: ReadonlyArray<{ pattern: RegExp; size: number }> = [
+  // Haiku 4.x, and Claude 3.x's (claude-3-5-haiku-20241022: the date follows the family)
+  { pattern: /haiku-(4|20\d{6})/, size: 200_000 },
 ]
 
 /** Regex alternation fragment of all Claude family names (e.g. 'fable|mythos|…'). */
@@ -18,6 +24,7 @@ export const CLAUDE_FAMILY_ALTERNATION = CLAUDE_FAMILIES.map(f => f.name).join('
 /** Context window size by model family. Patterns are checked in order;
  *  first match wins. Matched against lower-cased model IDs. */
 export const MODEL_FAMILY_CONTEXT: ReadonlyArray<{ pattern: RegExp; size: number }> = [
+  ...SMALLER_WINDOWS,
   ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}-\\d`), size: f.context })),
   // Codex/GPT models. Fallback only — Codex normally reports its own
   // authoritative window via event_msg.token_count.info.model_context_window.

@@ -25,6 +25,7 @@ import {
   drawCostLabels, drawCostSummaryPanel, drawHeartbeats, drawModelTags,
   drawWormholesBelow, drawWormholesAbove, isWormholeOpen,
   drawAgentMessages, isMessageInFlight,
+  drawWorkflowRuns,
   detectStateChanges as detectStateChangesPure,
 } from './canvas/index'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
@@ -371,6 +372,7 @@ export function AgentCanvas({
       }
 
       drawDiscoveryConnections(ctx, discoveries, agents)
+      drawWorkflowRuns(ctx, agents)
       drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current)
       drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId)
       drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId)

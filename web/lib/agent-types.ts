@@ -14,6 +14,12 @@ export interface ContextBreakdown {
   subagentResults: number // results from child agents
 }
 
+/** Where a workflow script's agent stands: its run, and its place among the run's agents from 1 */
+export interface WorkflowPlace {
+  runId: string
+  index: number
+}
+
 export interface Agent {
   id: string
   name: string
@@ -34,6 +40,8 @@ export interface Agent {
   isMain: boolean
   /** A teammate in an agent team: long-lived, idle between the messages it's sent */
   isTeammate?: boolean
+  /** An agent a workflow script started: its run, and its place among the run's agents from 1 */
+  workflow?: WorkflowPlace
   /** Which agent runtime produced this agent — used to pick the brand logo.
    *  Optional for forward compat with events that don't carry it (defaults to 'claude'). */
   runtime?: 'claude' | 'codex'

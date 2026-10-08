@@ -197,6 +197,17 @@ export function resolveSubagentChildName(input: Record<string, unknown>): string
   return String(input.description || input.subagent_type || 'subagent').slice(0, CHILD_NAME_MAX)
 }
 
+/** How many of a workflow run id's last characters tell its agents from another run's */
+const RUN_ID_TAIL = 4
+
+/** A workflow agent's name: its task and its place in the run, and the run's id as well when
+ *  another agent (a run going at the same time, or an earlier one) already goes by that */
+export function workflowAgentName(task: string, workflow: { runId: string; index: number }, taken: Iterable<string>): string {
+  const name = `${task} #${workflow.index}`
+  for (const t of taken) if (t === name) return `${name} ${workflow.runId.slice(-RUN_ID_TAIL)}`
+  return name
+}
+
 /** Prefixes that identify system-injected content (not real user messages).
  *  Used by both Claude Code (transcript-parser.ts) and Codex
  *  (codex-rollout-parser.ts extractCodexUserText), so additions here

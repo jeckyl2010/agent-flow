@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { formatModelName, modelTagLabel } from '../web/lib/utils'
 import { effortLevel } from '../web/lib/effort'
-import { CLAUDE_FAMILIES } from '../web/lib/canvas-constants'
+import { CLAUDE_FAMILIES, MODEL_FAMILY_CONTEXT } from '../web/lib/canvas-constants'
 
 test('formats new Claude model ids', () => {
   assert.equal(formatModelName('claude-sonnet-4-20250514'), 'Sonnet 4')
@@ -60,4 +60,17 @@ test('effort levels run from low (1) to max (5)', () => {
   assert.equal(effortLevel('max'), 5)
   assert.equal(effortLevel('0.5'), undefined)
   assert.equal(effortLevel(undefined), undefined)
+})
+
+test('Haiku 5.5 is named, and has a 1M window where Haiku 4.5 has 200K', () => {
+  assert.equal(formatModelName('claude-haiku-5-5'), 'Haiku 5.5')
+  const window = (id: string) => MODEL_FAMILY_CONTEXT.find(f => f.pattern.test(id))?.size
+  assert.equal(window('claude-haiku-5-5'), 1_000_000)
+  assert.equal(window('claude-haiku-4-5-20251001'), 200_000)
+})
+
+test('Claude 3.x Haiku keeps its 200K window', () => {
+  const window = (id: string) => MODEL_FAMILY_CONTEXT.find(f => f.pattern.test(id))?.size
+  assert.equal(window('claude-3-5-haiku-20241022'), 200_000)
+  assert.equal(window('claude-3-haiku-20240307'), 200_000)
 })

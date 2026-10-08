@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { modelPrice, blendedRate, stepCost, cacheHitRatio, cachedPromptCost } from '../web/lib/model-pricing'
+import { modelPrice, blendedRate, stepCost, totalCost, cacheHitRatio, cachedPromptCost, LONG_PROMPT_ABOVE } from '../web/lib/model-pricing'
+import { LONG_PROMPT_TOKENS } from '../extension/src/protocol'
 
 const usage = (input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
   input_tokens: input, output_tokens: output,
@@ -16,6 +17,31 @@ test('versions within a family are priced apart', () => {
   assert.deepEqual(modelPrice('claude-sonnet-5-5'), { input: 2, output: 10, cacheRead: 0.2 })
   assert.deepEqual(modelPrice('claude-sonnet-4-6'), { input: 3, output: 15, cacheRead: 0.3 })
   assert.deepEqual(modelPrice('claude-haiku-4-5-20251001'), { input: 1, output: 5, cacheRead: 0.1 })
+  assert.deepEqual(modelPrice('claude-haiku-5-5'), { input: 0.1, output: 0.5, cacheRead: 0.01 })
+})
+
+test('a prompt past 100K tokens is priced at Haiku 5.5\'s long-prompt card, output and cache too', () => {
+  assert.deepEqual(modelPrice('claude-haiku-5-5', 100_000), { input: 0.1, output: 0.5, cacheRead: 0.01 })
+  assert.deepEqual(modelPrice('claude-haiku-5-5', 100_001), { input: 0.5, output: 2.5, cacheRead: 0.05 })
+  assert.equal(modelPrice('claude-opus-5-5', 900_000).input, 4) // one card at any length
+  // The prompt counts the cache: 5K new, 150K read, 1K written is a long prompt
+  const long = usage(5_000, 1e6, 150_000, 1_000)
+  assert.ok(Math.abs(stepCost(long, 'claude-haiku-5-5') - (5_000 * 0.5 + 1e6 * 2.5 + 150_000 * 0.05 + 1_000 * 0.5 * 1.25) / 1e6) < 1e-12)
+  assert.ok(Math.abs(cachedPromptCost(150_000, 300, 'claude-haiku-5-5').warm - 150_000 * 0.05 / 1e6) < 1e-12)
+})
+
+test('the relay splits summed usage where the long-prompt card starts', () => {
+  assert.equal(LONG_PROMPT_TOKENS, LONG_PROMPT_ABOVE)
+})
+
+test('summed requests are priced at the standard card, but for the part whose prompts were long', () => {
+  // Two Haiku 5.5 requests of 60K each: 120K summed, but neither prompt was long
+  const short = usage(1e6, 1e6)
+  assert.ok(Math.abs(totalCost(short, 'claude-haiku-5-5') - 0.6) < 1e-12)
+  // Of 2M input and 2M output, half came from long prompts: $0.60 + $3.00
+  const all = usage(2e6, 2e6)
+  assert.ok(Math.abs(totalCost(all, 'claude-haiku-5-5', usage(1e6, 1e6)) - 3.6) < 1e-12)
+  assert.equal(totalCost(all, 'claude-opus-5-5', usage(1e6, 1e6)), stepCost(all, 'claude-opus-5-5'))
 })
 
 test('ids are matched case-insensitively and with suffixes', () => {
@@ -31,6 +57,7 @@ test('unknown models are priced as Sonnet-class', () => {
 test('blended rate weighs input 3:1 over output', () => {
   assert.equal(blendedRate('claude-opus-5-5'), 8)
   assert.equal(blendedRate('claude-haiku-4-5'), 2)
+  assert.equal(blendedRate('claude-haiku-5-5'), 0.2)
 })
 
 test('a step costs input, output, cache reads and 5-minute cache writes at their own prices', () => {

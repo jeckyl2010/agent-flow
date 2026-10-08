@@ -89,6 +89,8 @@ sessions it reports, Agent Flow shows:
 - compactions as they start and end, the real context window and where it compacts, and your
   rate-limit windows; messages agents send each other; tools the API runs itself (the advisor);
   why a permission dialog asks; a refused turn's reason (2.1.290+)
+- a workflow script's agents as one run, side by side in the order the script started them
+  (2.1.292+)
 
 Load it with `claude --plugin-dir /path/to/agent-flow/plugin`, then run
 `/agent-flow` in Claude Code to see where it sends events. It finds a running
