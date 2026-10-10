@@ -1,1 +1,13 @@
-{ "name": "agent-flow-bridge", "version": "0.1.0", "description": "Streams this session's tool calls, subagents, permissions and model usage to a running Agent Flow." }
+{
+  "name": "agent-flow-bridge",
+  "version": "0.1.0",
+  "description": "Streams this session's tool calls, subagents, permissions and model usage to a running Agent Flow.",
+  "userConfig": {
+    "notify": {
+      "type": "boolean",
+      "title": "Notifications",
+      "description": "Raise a notification for a refused turn, a failed subagent, or a rate-limit window 90% used.",
+      "default": true
+    }
+  }
+}

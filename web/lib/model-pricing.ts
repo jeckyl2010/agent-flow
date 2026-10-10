@@ -49,6 +49,7 @@ const MODEL_PRICES: ReadonlyArray<{ pattern: RegExp; price: ModelPrice; longCont
   { pattern: /(fable|mythos)-5/, price: { input: 10, output: 50, cacheRead: 1 } },
   { pattern: /opus-5-5/, price: { input: 4, output: 20, cacheRead: 0.2 } },
   { pattern: /opus-(5|4-[5-8])/, price: { input: 5, output: 25, cacheRead: 0.5 } },
+  { pattern: /sonnet-5-5/, price: { input: 2, output: 10, cacheRead: 0.1 } }, // cache reads cut from 0.2 (2.1.296)
   { pattern: /sonnet-5/, price: { input: 2, output: 10, cacheRead: 0.2 } },
   { pattern: /sonnet-4/, price: { input: 3, output: 15, cacheRead: 0.3 } },
   {

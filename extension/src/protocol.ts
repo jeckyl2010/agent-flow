@@ -140,7 +140,7 @@ export function emitSubagentSpawn(
   child: string,
   task: string,
   sessionId?: string,
-  { isTeammate = false, workflow }: { isTeammate?: boolean; workflow?: WorkflowPlace } = {},
+  { isTeammate = false, workflow, autoCompactWindow }: { isTeammate?: boolean; workflow?: WorkflowPlace; autoCompactWindow?: number } = {},
 ): void {
   emitter.emit({
     time: emitter.elapsed(sessionId),
@@ -150,7 +150,10 @@ export function emitSubagentSpawn(
   emitter.emit({
     time: emitter.elapsed(sessionId),
     type: 'agent_spawn',
-    payload: { name: child, parent, task, ...(isTeammate ? { isTeammate: true } : {}), ...(workflow ? { workflow } : {}) },
+    payload: {
+      name: child, parent, task, ...(isTeammate ? { isTeammate: true } : {}), ...(workflow ? { workflow } : {}),
+      ...(autoCompactWindow ? { autoCompactWindow } : {}),
+    },
   }, sessionId)
 }
 

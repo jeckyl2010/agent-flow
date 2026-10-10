@@ -67,7 +67,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'explore-agent', task: 'Deep-dive into payment flow and DB schema' } },
   { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'research-agent', task: 'Research Stripe & PayPal API patterns' } },
   { time: 10.2, type: 'agent_spawn', payload: { name: 'explore-agent', parent: 'orchestrator', task: 'Analyze payment flow and database schema' } },
-  { time: 10.2, type: 'agent_spawn', payload: { name: 'research-agent', parent: 'orchestrator', task: 'Research Stripe & PayPal integration patterns', model: 'claude-haiku-4-5' } },
+  { time: 10.2, type: 'agent_spawn', payload: { name: 'research-agent', parent: 'orchestrator', task: 'Research Stripe & PayPal integration patterns', model: 'claude-haiku-4-5', autoCompactWindow: 150_000 } },
   { time: 10.5, type: 'context_update', payload: { agent: 'explore-agent', tokens: 1800, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
   { time: 10.5, type: 'context_update', payload: { agent: 'research-agent', tokens: 1800, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
 

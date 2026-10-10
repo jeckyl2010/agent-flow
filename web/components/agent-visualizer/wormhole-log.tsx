@@ -90,6 +90,11 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
  */
 export function WormholeLog({ visible, agents, events, currentTime, onClose }: WormholeLogProps) {
   const main = useMemo(() => [...agents.values()].find(a => a.isMain), [agents])
+  // Subagents still at work whose agent file sets where they compact (autoCompactWindow)
+  const ownWindows = useMemo(
+    () => [...agents.values()].filter(a => !a.isMain && a.state !== 'complete' && a.compactThreshold),
+    [agents],
+  )
   // Only while shown: the forecast reads the whole event log
   const horizon = useMemo(() => (visible ? timeHorizon(events, currentTime) : undefined), [visible, events, currentTime])
 
@@ -111,6 +116,7 @@ export function WormholeLog({ visible, agents, events, currentTime, onClose }: W
         </PanelHeader>
 
         {main && <NextJump main={main} running={running} horizon={horizon} currentTime={currentTime} />}
+        {ownWindows.length > 0 && <SubagentJumps agents={ownWindows} />}
         {main?.rateLimits && main.rateLimits.length > 0 && <Limits limits={main.rateLimits} />}
 
         <div className="pt-3" style={{ borderTop: `1px solid ${COLORS.holoBorder08}` }}>
@@ -171,6 +177,31 @@ function NextJump({ main, running, horizon, currentTime }: {
         {main.compactThreshold
           ? `Compacts at ${formatCount(main.compactThreshold)} of a ${formatCount(main.tokensMax)} window`
           : 'Measured by the Agent Flow bridge mod; until then, the window’s edge'}
+      </div>
+    </div>
+  )
+}
+
+/** How far each subagent with its own compaction point is from it: one its agent file sets lower
+ *  than the main conversation's (autoCompactWindow, 2.1.296+) */
+function SubagentJumps({ agents }: { agents: Agent[] }) {
+  return (
+    <div className="mb-3 pt-3" style={{ borderTop: `1px solid ${COLORS.holoBorder08}` }}>
+      <SectionTitle>SUBAGENTS’ OWN WINDOWS</SectionTitle>
+      <div className="flex flex-col gap-1.5">
+        {agents.map(a => {
+          const target = a.compactThreshold!
+          const fill = Math.min(1, a.tokensUsed / target)
+          return (
+            <div key={a.id}>
+              <div className="flex justify-between gap-2 text-[9px] mb-0.5">
+                <span className="truncate" style={{ color: COLORS.textPrimary }}>{a.name}</span>
+                <span className="shrink-0" style={{ color: COLORS.textDim }}>{formatCount(a.tokensUsed)} / {formatCount(target)}</span>
+              </div>
+              <ProgressBar percent={fill * 100} color={fill > 0.85 ? COLORS.timePermission : COLORS.wormholeGlow} />
+            </div>
+          )
+        })}
       </div>
     </div>
   )

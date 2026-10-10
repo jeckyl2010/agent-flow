@@ -91,6 +91,12 @@ sessions it reports, Agent Flow shows:
   why a permission dialog asks; a refused turn's reason (2.1.290+)
 - a workflow script's agents as one run, side by side in the order the script started them
   (2.1.292+)
+- where a subagent compacts when its agent file sets `autoCompactWindow`, in its card and the
+  Wormhole log (2.1.296+; read from `.claude/agents/<type>.md` in the project, then `~/.claude`)
+
+It also raises a notification, through your own notification setting, for a refused turn, a
+subagent that failed, and a rate-limit window 90% used (2.1.295+). Turn it off with the mod's
+**Notifications** option in `/config`.
 
 Load it with `claude --plugin-dir /path/to/agent-flow/plugin`, then run
 `/agent-flow` in Claude Code to see where it sends events. It finds a running
