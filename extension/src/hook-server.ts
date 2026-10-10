@@ -82,6 +82,8 @@ interface HookPayload {
   /** A workflow script's agent (2.1.292+): its run, and its place among the run's agents from 1 */
   workflow_run_id?: string
   workflow_agent_index?: number
+  /** SubagentStart (mod only): the token count its agent file says it compacts at (2.1.296+) */
+  auto_compact_window?: number
   /** SubagentStop (mod only): the report the subagent handed back */
   answer?: string
   // Stop (mod only): what the API said of a refusal that ended the turn
@@ -449,7 +451,10 @@ export class HookServer implements vscode.Disposable {
     emitSubagentSpawn({
       emit: (event, sessionId) => this.emit(event, sessionId),
       elapsed: sessionId => this.elapsedSeconds(sessionId),
-    }, parentName, childName, payload.description || childName, payload.session_id, { isTeammate: payload.is_teammate === true, workflow })
+    }, parentName, childName, payload.description || childName, payload.session_id, {
+      isTeammate: payload.is_teammate === true, workflow,
+      ...(typeof payload.auto_compact_window === 'number' ? { autoCompactWindow: payload.auto_compact_window } : {}),
+    })
     if (payload.model) {
       state.models.set(childName, payload.model)
       this.emit({

@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, TurnStepServerToolUse } from 'claude-code'
+import type { EngineInterface, Register, SessionRateLimit, TurnStepServerToolUse } from 'claude-code'
 
 /**
  * Sends this session's events to a running Agent Flow (VS Code extension, `pnpm run dev` or
@@ -34,6 +34,13 @@ const OUTPUT_MAX = 2_000
 const LEAD_ADDRESSES = new Set(['team-lead', 'main'])
 /** A POST not answered by then is given up, so an instance that went away cannot stall the queue */
 const POST_TIMEOUT_MS = 1_000
+/** A rate-limit window used this much, in percent, raises a notification, once a window */
+const RATE_LIMIT_NOTIFY_PERCENT = 90
+/** What the rate-limit windows are called in a notification */
+const RATE_LIMIT_NAMES: Record<string, string> = { five_hour: '5-hour', seven_day: 'Weekly', spend_limit: 'Spend' }
+/** The range Claude Code takes for an agent's `autoCompactWindow`; a value outside it isn't used */
+const COMPACT_WINDOW_MIN = 100_000
+const COMPACT_WINDOW_MAX = 1_000_000
 
 let sessionId: string | undefined
 let cwd = ''
@@ -57,6 +64,14 @@ let statusTimer: { cancel(): void } | undefined
  *  it's off): the threshold is read again only when the window changes, as on a /model switch */
 let measuredWindow = 0
 let compactThreshold: number | undefined
+/** agentId → the task it was spawned for, which a notification names it by */
+const descriptions = new Map<string, string>()
+/** agent type → the `autoCompactWindow` its agent file sets, or undefined where it sets none */
+const compactWindows = new Map<string, number | undefined>()
+/** The rate-limit windows already notified of, by kind and reset: each once */
+const notifiedLimits = new Set<string>()
+/** Whether the bridge raises notifications (the `notify` option) */
+let isNotifying = true
 /** tool_use_id → the `ask` verdict its permission check returned, until the call ends */
 const asks = new Map<string, { tool: string; agentId?: string; reason?: string; rule?: string; ceiling?: string }>()
 /**
@@ -104,7 +119,8 @@ async function readInference($: EngineInterface): Promise<Inference> {
 /** What /agent-flow reports */
 const stats = { sent: 0, failed: 0, dropped: 0, lastError: '' }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  isNotifying = options.notify !== false
   on('session.start', async ($, e, next) => {
     sessionId = await $.session.id()
     cwd = e.cwd
@@ -136,6 +152,8 @@ export const register: Register = on => {
     asks.clear()
     teammates.clear()
     statuses.clear()
+    descriptions.clear()
+    compactWindows.clear() // an agent file edited since is read again
     statusTimer?.cancel()
     statusTimer = undefined
     measuredWindow = 0
@@ -209,7 +227,9 @@ export const register: Register = on => {
       // Since 2.1.289 a teammate's spawn comes here too, with its name in the team, and since
       // 2.1.292 a workflow script's, with its run and its place in it; older engines leave these out
       agentTypes.set(spawned.agentId, e.subagentType)
+      descriptions.set(spawned.agentId, e.description)
       if (e.isTeammate) teammates.add(spawned.agentId)
+      const compactWindow = await agentCompactWindow($, e.subagentType)
       send($, {
         hook_event_name: 'SubagentStart',
         agent_id: spawned.agentId, agent_type: e.subagentType,
@@ -218,6 +238,7 @@ export const register: Register = on => {
         parent_agent_id: e.parentAgentId ?? toolAgents.get(e.tool_use_id),
         ...(e.isTeammate ? { is_teammate: true, agent_name: e.name } : {}),
         ...(e.workflow ? { workflow_run_id: e.workflow.runId, workflow_agent_index: e.workflow.agentIndex } : {}),
+        ...(compactWindow !== undefined ? { auto_compact_window: compactWindow } : {}),
       })
       watchStatuses($)
     }
@@ -234,14 +255,20 @@ export const register: Register = on => {
         reason: e.reason, duration_ms: e.durationMs,
         ...(e.answer.trim() ? { answer: e.answer.slice(0, OUTPUT_MAX) } : {}),
       })
+      if (e.reason === 'error') notify($, `A subagent failed: ${descriptions.get(e.agentId) || agentTypes.get(e.agentId) || e.agentId}`)
       agentTypes.delete(e.agentId)
       statuses.delete(e.agentId)
+      descriptions.delete(e.agentId)
     } else {
       send($, {
         hook_event_name: 'Stop', reason: e.reason, duration_ms: e.durationMs,
         // What the API said of a refusal that ended the turn, the classifier's category and why
         ...(e.reason === 'refusal' ? { refusal: e.refusal } : {}),
       })
+      if (e.reason === 'refusal') {
+        const { category, explanation } = e.refusal
+        notify($, `Claude refused the turn${category ? ` (${category})` : ''}${explanation ? `: ${explanation}` : ''}`)
+      }
     }
     return next(e)
   })
@@ -265,6 +292,7 @@ export const register: Register = on => {
         rate_limits: rateLimits,
       })
     }
+    if (changed.includes('rateLimits')) notifyRateLimits($, rateLimits)
     return next(e)
   })
 
@@ -407,6 +435,67 @@ function endTeammate($: EngineInterface, agentId: string, reason: string): void 
   teammates.delete(agentId)
   agentTypes.delete(agentId)
   statuses.delete(agentId)
+}
+
+/**
+ * Raises a native notification through the person's own channel (2.1.295+), for what Agent Flow
+ * would show them were they watching: a refused turn, a failed subagent, a rate-limit window nearly
+ * used. Off with the `notify` option; an engine before 2.1.295 has no `$.ui.notify`, and sends none
+ */
+function notify($: EngineInterface, text: string): void {
+  if (!isNotifying) return
+  try {
+    $.ui.notify(text, { title: 'Agent Flow' }).catch(() => undefined)
+  } catch { /* no $.ui.notify before 2.1.295 */ }
+}
+
+/** A notification for each rate-limit window that has just passed RATE_LIMIT_NOTIFY_PERCENT */
+function notifyRateLimits($: EngineInterface, limits: readonly SessionRateLimit[]): void {
+  for (const { kind, percentUsed, resetsAt } of limits) {
+    const key = `${kind}:${resetsAt ?? ''}`
+    if (percentUsed < RATE_LIMIT_NOTIFY_PERCENT || notifiedLimits.has(key)) continue
+    notifiedLimits.add(key)
+    const left = resetsAt ? Date.parse(resetsAt) - Date.now() : NaN
+    notify($, `${RATE_LIMIT_NAMES[kind] ?? kind} limit ${percentUsed}% used${left > 0 ? `, resets in ${duration(left)}` : ''}`)
+  }
+}
+
+/** A span of time as a notification says it: `2 h 10 m`, `45 m` */
+function duration(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000))
+  const hours = Math.floor(minutes / 60)
+  return hours > 0 ? `${hours} h ${minutes % 60} m` : `${minutes} m`
+}
+
+/**
+ * The `autoCompactWindow` an agent type's file sets (2.1.296+): the token count at which that
+ * subagent compacts its own conversation. The engine tells a hook of it nowhere, so it is read
+ * where Claude Code reads it, the project's `.claude/agents/<type>.md` and then the user's, a file
+ * named for its type. A plugin's type (`<plugin>:<name>`), or one from `--agents`, isn't read
+ */
+async function agentCompactWindow($: EngineInterface, type: string): Promise<number | undefined> {
+  if (compactWindows.has(type)) return compactWindows.get(type)
+  let window: number | undefined
+  if (/^[\w-]+$/.test(type)) {
+    if (!cwd) cwd = await $.session.cwd() // a spawn before the first payload's flush
+    const home = await $.env.get('HOME') ?? await $.env.get('USERPROFILE')
+    for (const dir of [`${cwd}/.claude/agents`, ...(home ? [`${home}/.claude/agents`] : [])]) {
+      let text: string
+      try { text = String(await $.fs.read(`${dir}/${type}.md`)) } catch { continue }
+      window = frontmatterCompactWindow(text)
+      break // the project's file stands over the user's, whatever it sets
+    }
+  }
+  compactWindows.set(type, window)
+  return window
+}
+
+/** An agent file's `autoCompactWindow`, where its frontmatter sets one in range */
+function frontmatterCompactWindow(text: string): number | undefined {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1]
+  const value = frontmatter && /^autoCompactWindow:\s*['"]?([\d_]+)['"]?\s*(?:#.*)?$/m.exec(frontmatter)?.[1]
+  const n = value ? Number(value.replaceAll('_', '')) : NaN
+  return n >= COMPACT_WINDOW_MIN && n <= COMPACT_WINDOW_MAX ? n : undefined
 }
 
 type OutputBlock = { role: 'assistant' | 'thinking'; text: string; sent: string; sentAt: number }

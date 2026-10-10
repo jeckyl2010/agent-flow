@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 const WORKSPACE = '/work/app'
 
 /** One Agent Flow watching WORKSPACE (port 4001) and one elsewhere (4002); answers what flush and discovery call */
-function agentFlow(on: On, env: Record<string, string> = {}) {
+function agentFlow(on: On, env: Record<string, string> = {}, files: Record<string, string> = {}) {
   const clock = mock.clock(on)
   mock.env(on, { HOME: '/home/me', ...env })
   on('session.id', () => ({ value: 'session-1' }))
@@ -15,11 +15,13 @@ function agentFlow(on: On, env: Record<string, string> = {}) {
     { name: 'bbb-2.json', kind: 'file', size: 1 },
     { name: 'workspaces.json', kind: 'file', size: 1 },
   ] as never }))
-  on('fs.read', (_$, e) => ({
-    value: e.path.endsWith('aaa-1.json')
+  on('fs.read', (_$, e) => {
+    if (e.path in files) return { value: files[e.path]! }
+    if (e.path.endsWith('.md')) throw new Error(`ENOENT: ${e.path}`)
+    return { value: e.path.endsWith('aaa-1.json')
       ? JSON.stringify({ port: 4001, pid: 1, workspace: WORKSPACE })
-      : JSON.stringify({ port: 4002, pid: 2, workspace: '/elsewhere' }),
-  }))
+      : JSON.stringify({ port: 4002, pid: 2, workspace: '/elsewhere' }) }
+  })
 
   const posts: { url: string; body: Record<string, unknown> }[] = []
   on('http.fetch', (_$, e) => {
@@ -259,4 +261,70 @@ test('a subagent’s end carries the report it handed back', async ($, on) => {
   expect(posts.map(p => p.body).find(b => b.hook_event_name === 'SubagentStop')).toEqual(expect.objectContaining({
     agent_id: 'sub-1', answer: 'Found it in config/app.ts',
   }))
+})
+
+/** The notifications the bridge raised, each sent */
+function notifications(on: On) {
+  const raised: { text: string; title?: string }[] = []
+  on('ui.notify', (_$, e) => {
+    raised.push({ text: e.text, title: e.title })
+    return { value: { isSent: true, channel: 'kitty' } }
+  })
+  return raised
+}
+
+test('a subagent type whose file sets autoCompactWindow is sent with it; the project’s file over the user’s', async ($, on) => {
+  const { clock, posts } = agentFlow(on, {}, {
+    // The session's cwd is ${WORKSPACE}/src, as the engine starts it
+    [`${WORKSPACE}/src/.claude/agents/reviewer.md`]: '---\nname: reviewer\nautoCompactWindow: 150_000\n---\nReview.',
+    '/home/me/.claude/agents/reviewer.md': '---\nname: reviewer\nautoCompactWindow: 300000\n---\n',
+    '/home/me/.claude/agents/tiny.md': '---\nname: tiny\nautoCompactWindow: 5000\n---\n', // out of range
+  })
+  let n = 0
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `agent-${++n}` }))
+
+  await $.agent.spawn({ tool_use_id: 'tu-1', prompt: 'Look', description: 'Review', subagentType: 'reviewer' } as never)
+  await $.agent.spawn({ tool_use_id: 'tu-2', prompt: 'Look', description: 'Tiny', subagentType: 'tiny' } as never)
+  await $.agent.spawn({ tool_use_id: 'tu-3', prompt: 'Look', description: 'Explore', subagentType: 'Explore' } as never)
+  await clock.settle()
+
+  const starts = posts.map(p => p.body).filter(b => b.hook_event_name === 'SubagentStart')
+  expect(starts.map(b => b.auto_compact_window)).toEqual([150_000, undefined, undefined])
+})
+
+test('a refused turn, a failed subagent and a rate-limit window 90% used each raise one notification', async ($, on) => {
+  const { clock } = agentFlow(on)
+  const raised = notifications(on)
+  on('turn.complete', () => ({ text: '' }))
+  on('session.measure', (_$, e) => e as never)
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'sub-1' }))
+
+  await $.agent.spawn({ tool_use_id: 'tu-1', prompt: 'Build', description: 'Build the app', subagentType: 'general-purpose' } as never)
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 't1', agentId: 'sub-1', reason: 'error' } as never)
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 't2', reason: 'refusal', refusal: { category: 'cyber', explanation: null } } as never)
+  const limits = (percentUsed: number) => ({
+    context: { window: 1_000_000, tokens: 1000 }, changed: ['rateLimits'],
+    rateLimits: [{ kind: 'five_hour', percentUsed, resetsAt: new Date(Date.now() + 125 * 60_000).toISOString() }],
+  })
+  await $.session.measure(limits(85) as never)
+  await $.session.measure(limits(91) as never)
+  await $.session.measure(limits(95) as never) // the same window: told once
+  await clock.settle()
+
+  expect(raised).toEqual([
+    { text: 'A subagent failed: Build the app', title: 'Agent Flow' },
+    { text: 'Claude refused the turn (cyber)', title: 'Agent Flow' },
+    { text: expect.stringMatching(/^5-hour limit 91% used, resets in 2 h [45] m$/), title: 'Agent Flow' },
+  ])
+})
+
+test('no notification is raised with the notify option off', { options: { notify: false } }, async ($, on) => {
+  const { clock } = agentFlow(on)
+  const raised = notifications(on)
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 't1', reason: 'refusal', refusal: { category: null, explanation: null } } as never)
+  await clock.settle()
+
+  expect(raised).toEqual([])
 })

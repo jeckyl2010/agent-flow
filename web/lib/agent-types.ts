@@ -69,7 +69,8 @@ export interface Agent {
   /** Its context's compactions, oldest first: those from before Agent Flow watched, and each since,
    *  running while Claude Code summarizes */
   compactions?: Compaction[]
-  /** The main agent: the fill at which Claude Code compacts its context, as it measured it */
+  /** The fill at which Claude Code compacts its context: the main agent's as the engine measured
+   *  it, a subagent's as its agent file's autoCompactWindow sets it (2.1.296+) */
   compactThreshold?: number
   /** The main agent: the account's rate-limit windows, as the latest response reported them */
   rateLimits?: RateLimit[]

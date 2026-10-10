@@ -23,6 +23,10 @@ export function handleAgentSpawn(
   const runtime = payload.runtime === 'codex' ? 'codex' as const : undefined
   const isTeammate = payload.isTeammate === true ? true : undefined
   const workflow = asWorkflow(payload.workflow)
+  // Where its agent file says it compacts (autoCompactWindow, 2.1.296+), as the bridge mod read it
+  const compactThreshold = typeof payload.autoCompactWindow === 'number' && payload.autoCompactWindow > 0
+    ? payload.autoCompactWindow
+    : undefined
 
   // If the agent already exists (e.g. session resuming after inactivity),
   // reactivate it instead of replacing — preserves accumulated stats.
@@ -36,6 +40,7 @@ export function handleAgentSpawn(
       ...(runtime ? { runtime } : {}),
       // A workflow run started again reuses its agents' names: they belong to the new run now
       ...(workflow ? { workflow } : {}),
+      ...(compactThreshold ? { compactThreshold } : {}),
     })
     return
   }
@@ -92,6 +97,7 @@ export function handleAgentSpawn(
     pinned: false, isMain,
     ...(isTeammate ? { isTeammate } : {}),
     ...(workflow ? { workflow } : {}),
+    ...(compactThreshold ? { compactThreshold } : {}),
     ...(runtime ? { runtime } : {}),
     ...(model ? { model } : {}),
     task,
