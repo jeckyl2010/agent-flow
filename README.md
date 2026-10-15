@@ -1,205 +1,122 @@
 # Agent Flow
 
-Real-time visualization of Claude Code and Codex agent orchestration. Watch your agents think, branch, and coordinate as they work. [Demo video here](https://www.youtube.com/watch?v=Ud6eDrFN-TA). 
+See what your Claude Code (and Codex) agents are doing while they do it: who spawned whom, which
+tools they reach for, what it costs, and where the context goes.
 
-![Agent Flow visualization](https://res.cloudinary.com/dxlvclh9c/image/upload/v1773924941/screenshot_e7yox3.png)
+This is a fork of [patoles/agent-flow](https://github.com/patoles/agent-flow) by Simon Patole. It
+follows each Claude Code release closely and adds cost, the prompt cache, compactions, a time
+horizon, an environmental footprint and a bridge mod that reports a session from inside Claude
+Code.
 
-## Why Agent Flow?
+![The canvas: the main agent, a workflow's review agents and a test runner at work, with each agent's model and effort, and the session's footprint](docs/screenshots/canvas.jpg)
 
-I built Agent Flow while developing [CraftMyGame](https://craftmygame.com), a game creation platform driven by AI agents. Debugging agent behavior was painful, so we made it visual. Now we're sharing it.
+## What you see
 
-Claude Code is powerful, but its execution is a black box — you see the final result, not the journey. Agent Flow makes the invisible visible:
+- **The canvas.** Each agent is a node, and its subagents, teammates and workflow agents branch
+  off it. Tool calls fly out and return, answers stream in, and a heartbeat pulses with each model
+  request. Click anything to inspect it.
+- **Cost and the cache.** Each agent's spend, priced from the API's own usage, and how much of
+  each prompt the cache served. Its model and effort sit on its card.
+- **Context.** How full each agent's context is, and of what: the system prompt and tools as
+  Claude Code sent them, your messages, tool results, reasoning and subagent reports.
+- **Compactions as wormholes.** When a conversation is compacted, its node opens a wormhole and
+  jumps (`⟲ 967k → 13k`). The Wormhole log lists every compaction and forecasts the next. That
+  includes an idle compaction, which Claude Code runs before a large, quiet conversation's prompt
+  cache lapses.
+- **The time horizon.** Where the session's time went, as a disk: thinking, tools, subagents,
+  permission dialogs, waiting for you. Subagents are ships on a slingshot, and each compaction
+  leaves a mark.
+- **The footprint.** Energy and emissions of the requests, after
+  [EcoLogits](https://ecologits.ai), at the grid of the region where they ran.
+- **Timeline, transcript and files.** Every agent's activity over time, the conversation, and
+  which files got the most attention.
 
-- **Understand agent behavior** — See how Claude breaks down problems, which tools it reaches for, and how subagents coordinate
-- **Debug tool call chains** — When something goes wrong, trace the exact sequence of decisions and tool calls that led there
-- **See where time is spent** — Identify slow tool calls, unnecessary branching, or redundant work at a glance
-- **Learn by watching** — Build intuition for how to write better prompts by observing how Claude interprets and executes them
+![The time horizon: where the session's time went, the prompt cache and when the context will compact](docs/screenshots/time-horizon.jpg)
 
-## Features
+Several sessions show side by side as tabs. Claude Code is read from its hooks and transcripts,
+and Codex from its rollout files.
 
-- **Live agent visualization**: Watch agent execution as an interactive node graph with real-time tool calls, branching, and return flows
-- **Claude Code + Codex**: Auto-detects sessions from both runtimes concurrently and shows them side-by-side, or restrict to one via the `agentVisualizer.runtime` setting
-- **Claude Code hooks**: Lightweight HTTP hook server receives events directly from Claude Code for zero-latency streaming
-- **Codex rollout tailing**: Reads `~/.codex/sessions/**/rollout-*.jsonl` (respects `CODEX_HOME`) and surfaces tool calls, reasoning, and authoritative token counts from Codex's own event stream
-- **Multi-session support**: Track multiple concurrent agent sessions with tabs
-- **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
-- **Timeline & transcript panels**: Review the full execution timeline, file attention heatmap, and message transcript
-- **Compactions as wormholes**: When Claude Code compacts a conversation, the agent's node opens a wormhole: the conversation spirals in while it is summarized, then jumps, showing what it left (`⟲ 967k → 13k`). The **Wormhole** log (`w`) lists every compaction, earlier ones included, and how far the context is from the next, at the rate it is growing; the time horizon marks each on its disk. A conversation of 200K tokens or more left idle is compacted before its prompt cache lapses (Claude Code 2.1.299+, in the terminal): the log counts down to that, and names those compactions idle
-- **Measured system prompt**: from Claude Code 2.1.300 the transcript records the system prompt and tool definitions each request was sent with, and the context breakdown counts them, where it was a 5K guess
-- **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
+| Key | | Key | |
+|---|---|---|---|
+| `Space` | play / pause | `h` | time horizon |
+| `t` | timeline | `w` | wormhole log |
+| `c` | transcript | `$` | cost overlay |
+| `f` | file attention | `g` | hex grid |
+| `F` | zoom to fit | `s` | stats |
+| `1`–`4` | playback speed | `m` | mute |
 
-## Getting Started
+## Run it
 
-### Quick Start (no VS Code required)
+The published `npx agent-flow-app` and the Marketplace extension are upstream's builds. For
+this fork's features, run it from source:
 
 ```bash
-npx agent-flow-app
-```
-
-This starts the visualizer in your browser. Start a Claude Code session in another terminal — events will stream in real-time.
-
-Options:
-- `--port <number>` — change the server port (default: 3001)
-- `--no-open` — don't open the browser automatically
-- `--verbose` — show detailed event logs
-
-### Standalone Web App (from source)
-
-```bash
-git clone https://github.com/patoles/agent-flow.git
+git clone https://github.com/jeckyl2010/agent-flow.git
 cd agent-flow
 pnpm i
-pnpm run setup      # configure Claude Code hooks (one-time)
-pnpm run dev        # start the web app + event relay
+pnpm run setup      # adds Agent Flow's hooks to ~/.claude/settings.json (once)
+pnpm run dev        # the web app on http://localhost:3000, and the event relay
 ```
 
-Open http://localhost:3000 and start a Claude Code session in another terminal — events will stream to the browser in real-time.
+Start Claude Code in another terminal and the session appears. `pnpm run dev:demo` plays a
+demo session with a tour of the views, without Claude Code.
 
-### VS Code Extension
+For VS Code (or Cursor, Windsurf), build the extension with `pnpm run build:all`, then
+`cd extension && npx @vscode/vsce package`, and install the `.vsix`. **Agent Flow: Open Agent Flow**
+(`Cmd+Alt+A`) opens it, and it sets up the hooks the first time.
 
-1. Install the extension
-2. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Flow: Open Agent Flow**
-3. Start a Claude Code or Codex session in your workspace — Agent Flow will auto-detect it
+## The bridge mod (recommended)
 
-Agent Flow automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Agent Flow: Configure Claude Code Hooks** from the Command Palette.
+`plugin/` is a Claude Code mod that reports the session from inside Claude Code, where the hooks
+and transcripts only let Agent Flow guess. With it you get:
 
-### Runtime selection
+- tool calls in order, and permission requests only when the dialog actually shows
+- the context window, fill and usage as the API measured them, and your rate limits
+- answers and thinking as they stream
+- compactions as they start and end, and a subagent's own compaction point
+- agent teams, workflow runs, resumed subagents, messages between agents, and the advisor's calls
+- why a permission asks, and why a turn was refused
+- a notification for a refused turn, a failed subagent, or a rate limit 90% used (turn it off
+  with the mod's **Notifications** option in `/config`)
 
-By default Agent Flow watches both Claude Code (`~/.claude/projects/`) and Codex (`~/.codex/sessions/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx agent-flow-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
+```bash
+claude --plugin-dir /path/to/agent-flow/plugin
+```
 
-To restrict to one runtime:
-
-- **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` in your settings
-- **`pnpm run dev` and `npx agent-flow-app`:** set the `AGENT_FLOW_RUNTIME` environment variable to `claude` or `codex` (defaults to watching both)
-
-For non-default Codex installs, set the `CODEX_HOME` environment variable.
-
-### Claude Code bridge mod (early access)
-
-`plugin/` is a Claude Code mod that reports a session from inside Claude Code
-instead of through settings.json hooks and the transcript file. For the
-sessions it reports, Agent Flow shows:
-
-- tool calls as they start and end, in order, once each
-- permission requests only when Claude Code actually shows the dialog
-- subagents by their real ids, under the agent that started them
-- each agent's model and its context fill as the API measured it, not an estimate
-- answers and thinking streaming in as the model writes them
-- agent-team teammates by their names in the team (Claude Code 2.1.289+)
-- when a subagent or teammate is idle or waiting, as Claude Code reports it (2.1.289+)
-- compactions as they start and end, the real context window and where it compacts, and your
-  rate-limit windows; messages agents send each other; tools the API runs itself (the advisor);
-  why a permission dialog asks; a refused turn's reason (2.1.290+)
-- a workflow script's agents as one run, side by side in the order the script started them
-  (2.1.292+)
-- where a subagent compacts when its agent file sets `autoCompactWindow`, in its card and the
-  Wormhole log (2.1.296+; read from `.claude/agents/<type>.md` in the project, then `~/.claude`)
-- a finished subagent you resume, or a teammate brought back, as the same agent waking up, marked
-  resumed on its timeline (2.1.299+)
-- `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`, where you set it, for the idle compaction countdown
-
-It also raises a notification, through your own notification setting, for a refused turn, a
-subagent that failed, and a rate-limit window 90% used (2.1.295+). Turn it off with the mod's
-**Notifications** option in `/config`.
-
-Load it with `claude --plugin-dir /path/to/agent-flow/plugin`, then run
-`/agent-flow` in Claude Code to see where it sends events. It finds a running
-Agent Flow the same way the hook script does, and sends nothing when none is
-watching the session's directory. The mod API is early access and may change
-between Claude Code releases; sessions without the mod keep working as before.
-
-### JSONL Event Log
-
-You can also point Agent Flow at a JSONL event log file:
-
-1. Set `agentVisualizer.eventLogPath` in your VS Code settings to the path of a `.jsonl` file
-2. Agent Flow will tail the file and visualize events as they arrive
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `Agent Flow: Open Agent Flow` | Open the visualizer panel |
-| `Agent Flow: Open Agent Flow to Side` | Open in a side editor column |
-| `Agent Flow: Connect to Running Agent` | Manually connect to an agent session |
-| `Agent Flow: Configure Claude Code Hooks` | Set up Claude Code hooks for live streaming |
-
-## Keyboard Shortcut
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+Alt+A` (Mac) / `Ctrl+Alt+A` (Win/Linux) | Open Agent Flow |
+`/agent-flow` in Claude Code shows where it sends events. Each feature arrives with the Claude
+Code release that reports it, and the mod API is early access: sessions without the mod keep
+working from the hooks and transcripts.
 
 ## Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `agentVisualizer.runtime` | `"auto"` | Which agent runtime(s) to watch: `"auto"` (both), `"claude"`, or `"codex"` |
-| `agentVisualizer.devServerPort` | `0` | Development server port (0 = production mode) |
-| `agentVisualizer.eventLogPath` | `""` | Path to a JSONL event log file to watch |
-| `agentVisualizer.autoOpen` | `false` | Auto-open when an agent session starts |
-
-## Requirements
-
-- [Node.js](https://nodejs.org/) 20+ (LTS recommended)
-- [pnpm](https://pnpm.io/)
-- Claude Code CLI
-- For the VS Code extension: a VSCode-compatible IDE 1.85+ (e.g. [VS Code](https://code.visualstudio.com/), [Cursor](https://cursor.sh/), [Windsurf](https://windsurf.com/))
+| Where | Setting | |
+|---|---|---|
+| VS Code | `agentVisualizer.runtime` | `auto` (both), `claude` or `codex` |
+| VS Code | `agentVisualizer.autoOpen` | open when a session starts |
+| VS Code | `agentVisualizer.eventLogPath` | replay or tail a JSONL event log |
+| Environment | `AGENT_FLOW_RUNTIME` | `claude` or `codex`, for `pnpm run dev` |
+| Environment | `CODEX_HOME` | a Codex install outside `~/.codex` |
 
 ## Development
 
+Node.js 20+ and pnpm. `pnpm run dev:demo` runs the demo, and `pnpm run build:all` builds the
+webview and the extension.
+
 ```bash
-pnpm i              # install dependencies for all packages
-pnpm run setup      # configure Claude Code hooks (one-time)
-pnpm run dev        # start dev server + event relay
+pnpm test                              # web and relay
+cd extension && npm test               # extension
+claude plugin test plugin              # bridge mod
 ```
 
-`pnpm run dev` starts both the Next.js dev server and an event relay that receives Claude Code events and streams them to the browser via SSE.
+## Privacy
 
-Other scripts:
+Telemetry is off unless you set `AGENT_FLOW_TELEMETRY=true`. Only the published
+`npx agent-flow-app` can send it. It sends aggregate counts and never prompts, paths, tool calls
+or environment variables. See [scripts/telemetry.ts](scripts/telemetry.ts) for the exact fields.
 
-| Script | Description |
-|--------|-------------|
-| `pnpm run dev:demo` | Start with demo/mock data |
-| `pnpm run dev:relay` | Run the event relay server standalone |
-| `pnpm run dev:extension` | Watch-build the extension |
-| `pnpm run build:all` | Production build (webview + extension) |
-| `pnpm run build:web` | Build the Next.js web app |
-| `pnpm run build:extension` | Build the extension |
-| `pnpm run build:webview` | Build the webview assets |
+## Credits and license
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/chart?repos=patoles/agent-flow&type=date&legend=bottom-right)](https://www.star-history.com/?repos=patoles%2Fagent-flow&type=date&legend=bottom-right)
-
-
-## Author
-
-Created by [Simon Patole](https://github.com/patoles), for [CraftMyGame](https://craftmygame.com).
-
-## Privacy & Telemetry
-
-Agent Flow's anonymous usage telemetry is **opt-in**: nothing is sent, and
-nothing is written to disk, unless you turn it on. Only the published
-`npx agent-flow-app` binary can emit; `pnpm run dev` and the VS Code extension
-never do. When enabled, only aggregate events are sent — session count,
-duration, event count, OS/arch, Agent Flow version, distinct model IDs
-observed, which runtimes were watched, and error class names. Prompts, file
-paths, tool calls, user info, and environment variables are never sent.
-
-- **Turn on:** `export AGENT_FLOW_TELEMETRY=true`. `DO_NOT_TRACK=1` keeps it
-  off regardless (disabled installs write zero state to disk — no
-  `~/.agent-flow/` directory)
-- **Inspect the payload:** `cat ~/.agent-flow/telemetry/events.jsonl`
-- **Full schema + exact fields:** see the v0.8.1 entry in
-  [extension/CHANGELOG.md](extension/CHANGELOG.md) or the `serialize()` function
-  in [scripts/telemetry.ts](scripts/telemetry.ts)
-- **Reset your anonymous identity:** delete `~/.agent-flow/installation-id` —
-  a fresh random UUIDv4 will be generated on next run
-
-
-## License
-
-Apache 2.0 — see [LICENSE](LICENSE) for details.
-
-The name "Agent Flow" and associated logos are trademarks of Simon Patole. See [TRADEMARK.md](TRADEMARK.md) for usage guidelines.
+Agent Flow was created by [Simon Patole](https://github.com/patoles) for
+[CraftMyGame](https://craftmygame.com) ([demo video](https://www.youtube.com/watch?v=Ud6eDrFN-TA)).
+Apache 2.0, see [LICENSE](LICENSE). "Agent Flow" is a trademark of Simon Patole, see
+[TRADEMARK.md](TRADEMARK.md).
