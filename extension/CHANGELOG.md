@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Telemetry is now opt-in** — `npx agent-flow-app` sends nothing and writes nothing to `~/.agent-flow/` unless `AGENT_FLOW_TELEMETRY=true` is set. `DO_NOT_TRACK=1` still wins over it
+- **Telemetry removed** — Agent Flow reports nothing anywhere. `AGENT_FLOW_TELEMETRY`, the Supabase sync and `~/.agent-flow/` are gone; an existing `~/.agent-flow/` folder can be deleted
 
 ## 0.9.1
 

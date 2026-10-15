@@ -110,9 +110,9 @@ claude plugin test plugin              # bridge mod
 
 ## Privacy
 
-Telemetry is off unless you set `AGENT_FLOW_TELEMETRY=true`. Only the published
-`npx agent-flow-app` can send it. It sends aggregate counts and never prompts, paths, tool calls
-or environment variables. See [scripts/telemetry.ts](scripts/telemetry.ts) for the exact fields.
+Agent Flow reports nothing anywhere: no telemetry, no analytics, no update checks. It reads your
+sessions on your machine and serves them to your browser from `127.0.0.1`. Upstream's opt-in
+telemetry has been removed from this fork.
 
 ## Credits and license
 

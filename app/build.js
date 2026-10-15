@@ -13,7 +13,6 @@ const path = require('path')
 const ROOT = path.join(__dirname, '..')
 const APP_DIR = __dirname
 const WEB_DIR = path.join(ROOT, 'web')
-const APP_PKG = require(path.join(APP_DIR, 'package.json'))
 
 /** The web package's own Vite, run by this Node: no npx, which under pnpm warns about pnpm's
  *  settings in the environment, and no shell, so it works the same on Windows. */
@@ -41,9 +40,6 @@ esbuild.buildSync({
   outfile: path.join(APP_DIR, 'dist', 'app.js'),
   alias: {
     'vscode': path.join(ROOT, 'scripts', 'vscode-shim.js'),
-  },
-  define: {
-    AGENT_FLOW_APP_VERSION: JSON.stringify(APP_PKG.version),
   },
   banner: {
     js: '#!/usr/bin/env node',
