@@ -77,8 +77,12 @@ let lastTurnEnd = 0
 const descriptions = new Map<string, string>()
 /** agent type → the `autoCompactWindow` its agent file sets, or undefined where it sets none */
 const compactWindows = new Map<string, number | undefined>()
-/** The rate-limit windows already notified of, by kind and reset: each once */
-const notifiedLimits = new Set<string>()
+/** The rate-limit windows already notified of, each once: kind → when the notified one resets
+ *  (ms, NaN where the response gave no reset) */
+const notifiedLimits = new Map<string, number>()
+/** Resets this close together are one window's: its reset comes back a little apart from one
+ *  response to the next */
+const RESET_JITTER_MS = 5 * 60_000
 /** Whether the bridge raises notifications (the `notify` option) */
 let isNotifying = true
 /** tool_use_id → the `ask` verdict its permission check returned, until the call ends */
@@ -481,12 +485,14 @@ function notify($: EngineInterface, text: string): void {
 /** A notification for each rate-limit window that has just passed RATE_LIMIT_NOTIFY_PERCENT */
 function notifyRateLimits($: EngineInterface, limits: readonly SessionRateLimit[]): void {
   for (const { kind, percentUsed, resetsAt } of limits) {
-    // To the minute: a window's reset comes back a little apart from one response to the next
-    const resetMinute = resetsAt ? Math.round(Date.parse(resetsAt) / 60_000) : ''
-    const key = `${kind}:${resetMinute}`
-    if (percentUsed < RATE_LIMIT_NOTIFY_PERCENT || notifiedLimits.has(key)) continue
-    notifiedLimits.add(key)
-    const left = resetsAt ? Date.parse(resetsAt) - Date.now() : NaN
+    if (percentUsed < RATE_LIMIT_NOTIFY_PERCENT) continue
+    const resetAt = resetsAt ? Date.parse(resetsAt) : NaN
+    const notified = notifiedLimits.get(kind)
+    const isSameWindow = notified !== undefined
+      && ((Number.isNaN(notified) && Number.isNaN(resetAt)) || Math.abs(resetAt - notified) < RESET_JITTER_MS)
+    if (isSameWindow) continue
+    notifiedLimits.set(kind, resetAt)
+    const left = resetAt - Date.now()
     notify($, `${RATE_LIMIT_NAMES[kind] ?? kind} limit ${percentUsed}% used${left > 0 ? `, resets in ${duration(left)}` : ''}`)
   }
 }

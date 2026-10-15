@@ -302,13 +302,14 @@ test('a refused turn, a failed subagent and a rate-limit window 90% used each ra
   await $.agent.spawn({ tool_use_id: 'tu-1', prompt: 'Build', description: 'Build the app', subagentType: 'general-purpose' } as never)
   await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 't1', agentId: 'sub-1', reason: 'error' } as never)
   await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 't2', reason: 'refusal', refusal: { category: 'cyber', explanation: null } } as never)
-  const limits = (percentUsed: number) => ({
+  const limits = (percentUsed: number, resetIn = 125 * 60_000) => ({
     context: { window: 1_000_000, tokens: 1000 }, changed: ['rateLimits'],
-    rateLimits: [{ kind: 'five_hour', percentUsed, resetsAt: new Date(Date.now() + 125 * 60_000).toISOString() }],
+    rateLimits: [{ kind: 'five_hour', percentUsed, resetsAt: new Date(Date.now() + resetIn).toISOString() }],
   })
   await $.session.measure(limits(85) as never)
   await $.session.measure(limits(91) as never)
-  await $.session.measure(limits(95) as never) // the same window: told once
+  // The same window, its reset a little apart (across a minute's turn): told once
+  await $.session.measure(limits(95, 125 * 60_000 + 31_000) as never)
   await clock.settle()
 
   expect(raised).toEqual([
