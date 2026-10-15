@@ -99,7 +99,7 @@ working from the hooks and transcripts.
 
 ## Development
 
-Node.js 20+ and pnpm. `pnpm run dev:demo` runs the demo, and `pnpm run build:all` builds the
+Node.js 22+ and pnpm 12. `pnpm run dev:demo` runs the demo, and `pnpm run build:all` builds the
 webview and the extension.
 
 ```bash

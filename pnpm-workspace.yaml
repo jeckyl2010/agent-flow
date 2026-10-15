@@ -1,3 +1,8 @@
 packages:
   - extension
   - web
+
+# Dependencies' install scripts stay off unless named here. esbuild runs from its prebuilt
+# platform package without its postinstall check, as it did under pnpm 10
+allowBuilds:
+  esbuild: false
