@@ -100,7 +100,8 @@ working from the hooks and transcripts.
 ## Development
 
 Node.js 22+ and pnpm 12. `pnpm run dev:demo` runs the demo, and `pnpm run build:all` builds the
-webview and the extension.
+webview and the extension. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers how it fits
+together and how a new Claude Code release is taken in.
 
 ```bash
 pnpm test                              # web and relay
