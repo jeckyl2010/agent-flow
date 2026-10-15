@@ -17,7 +17,7 @@ function findMain(agents: Map<string, Agent>): Agent | undefined {
   return undefined
 }
 
-function addMarker(state: MutableEventState, agent: Agent, time: number, label: string, color: string): void {
+export function addMarker(state: MutableEventState, agent: Agent, time: number, label: string, color: string): void {
   const entry = state.timelineEntries.get(agent.id)
   if (entry) state.timelineEntries.set(agent.id, { ...entry, markers: [...(entry.markers ?? []), { time, label, color }] })
 }
@@ -64,6 +64,7 @@ export function handleSessionMeasure(
     ...main,
     ...(window > 0 ? { tokensMax: window } : {}),
     compactThreshold: optNumber(payload.compactThreshold) ?? main.compactThreshold,
+    idleCompactMin: optNumber(payload.idleCompactMin) ?? main.idleCompactMin,
     rateLimits,
   })
 }

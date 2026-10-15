@@ -140,7 +140,7 @@ export function emitSubagentSpawn(
   child: string,
   task: string,
   sessionId?: string,
-  { isTeammate = false, workflow, autoCompactWindow }: { isTeammate?: boolean; workflow?: WorkflowPlace; autoCompactWindow?: number } = {},
+  { isTeammate = false, workflow, autoCompactWindow, resumed = false }: { isTeammate?: boolean; workflow?: WorkflowPlace; autoCompactWindow?: number; resumed?: boolean } = {},
 ): void {
   emitter.emit({
     time: emitter.elapsed(sessionId),
@@ -153,6 +153,8 @@ export function emitSubagentSpawn(
     payload: {
       name: child, parent, task, ...(isTeammate ? { isTeammate: true } : {}), ...(workflow ? { workflow } : {}),
       ...(autoCompactWindow ? { autoCompactWindow } : {}),
+      // The same agent run again (2.1.299+): a finished subagent resumed, a teammate brought back
+      ...(resumed ? { resumed: true } : {}),
     },
   }, sessionId)
 }
@@ -248,6 +250,11 @@ export interface WatchedSession {
   }
   /** The main conversation's compactions from before it was watched, oldest first */
   pastCompactions: CompactionRecord[]
+  /** The system prompt and tool definitions a request was sent with, in tokens, by the shape's hash:
+   *  the `api-request-shape` lines 2.1.300+ transcripts carry */
+  requestShapes: Map<string, number>
+  /** When the main conversation's latest user or assistant entry was written, ISO 8601 */
+  lastEntryAt?: string
 }
 
 /** A compaction as the transcript records it (a `compact_boundary` entry) */

@@ -72,6 +72,9 @@ export interface Agent {
   /** The fill at which Claude Code compacts its context: the main agent's as the engine measured
    *  it, a subagent's as its agent file's autoCompactWindow sets it (2.1.296+) */
   compactThreshold?: number
+  /** The main agent: the context idle compaction needs, where CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS
+   *  changed it from 200K, as the bridge mod read it */
+  idleCompactMin?: number
   /** The main agent: the account's rate-limit windows, as the latest response reported them */
   rateLimits?: RateLimit[]
   /** Messages it sent other agents lately (SendMessage), newest last */
@@ -88,7 +91,8 @@ export interface Compaction {
   /** Simulation time it started; a transcript records only its end, so there, when it ended */
   startTime: number
   endTime?: number
-  /** `auto` at the threshold, `manual` (/compact) or a plugin's */
+  /** `auto` at the threshold, `manual` (/compact), `idle` (a conversation left idle before its cache
+   *  lapsed, 2.1.299+) or a plugin's */
   trigger?: string
   tokensBefore?: number
   tokensAfter?: number

@@ -1,7 +1,7 @@
 /**
  * Context compactions, as the canvas draws them (a wormhole) and the wormhole log lists them.
  */
-import type { Compaction } from './agent-types'
+import type { Agent, Compaction, SimulationEvent } from './agent-types'
 import { WORMHOLE } from './canvas-constants'
 import { formatCount } from './utils'
 
@@ -23,6 +23,38 @@ export interface WormholeFrame {
   open: number
   t: number
   jump?: number
+}
+
+/** How a compaction came about, as the wormhole log says it */
+export function triggerLabel(trigger: string | undefined): string {
+  if (trigger === 'manual') return '/compact'
+  if (trigger === 'idle') return 'idle, before the cache lapsed'
+  return trigger ?? 'compacted'
+}
+
+/** Since 2.1.299 Claude Code compacts a conversation of 200K tokens or more left idle about 54
+ *  minutes, before its one-hour prompt cache lapses, so the next message doesn't reprocess it all */
+export const IDLE_COMPACT = { afterS: 54 * 60, minTokens: 200_000 }
+
+/** What the conversation did, as against what was measured of it: the idle clock starts over at one */
+const ACTIVITY = new Set([
+  'message', 'tool_call_start', 'tool_call_end', 'model_step', 'agent_spawn', 'agent_complete', 'agent_idle',
+  'subagent_dispatch', 'subagent_return', 'permission_requested', 'turn_failed', 'agent_message',
+])
+
+/** Seconds until idle compaction would fold the main conversation if it stays idle, or undefined
+ *  where it won't: its turn hasn't ended, or the context is under the size it needs. Claude Code
+ *  does this in the terminal only, and not where settings.json sets `"idleCompaction": false` */
+export function idleCompactionIn(main: Agent, events: readonly SimulationEvent[], currentTime: number): number | undefined {
+  if (main.tokensUsed < (main.idleCompactMin ?? IDLE_COMPACT.minTokens)) return undefined
+  // The main loop's turn ended (its Stop, or its transcript gone quiet), and nothing happened since
+  const at = events.findLastIndex(e => ACTIVITY.has(e.type))
+  const ended = events[at]
+  if (!ended || ended.type !== 'agent_idle' || ended.payload.name !== main.id) return undefined
+  // Timed from what it last did: a transcript is only called quiet minutes after its turn ended
+  const before = events.slice(0, at).findLast(e => ACTIVITY.has(e.type))
+  const left = (before ?? ended).time + IDLE_COMPACT.afterS - currentTime
+  return left > 0 ? left : undefined
 }
 
 const easeOut = (x: number) => 1 - (1 - x) ** 3

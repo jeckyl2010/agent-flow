@@ -40,5 +40,6 @@ export function createWatchedSession(
     permissionEmitted: false,
     contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
     pastCompactions: [],
+    requestShapes: new Map(),
   }
 }

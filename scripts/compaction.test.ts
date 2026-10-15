@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import type { SimulationEvent } from '../web/lib/agent-types'
 import { WORMHOLE } from '../web/lib/canvas-constants'
-import { compactionDrop, compactionLabel, foldCompaction, wormholeFrame } from '../web/lib/compaction'
+import type { Agent } from '../web/lib/agent-types'
+import { IDLE_COMPACT, compactionDrop, compactionLabel, foldCompaction, idleCompactionIn, triggerLabel, wormholeFrame } from '../web/lib/compaction'
 import { timeHorizon, predictConsumption } from '../web/lib/time-horizon'
 
 test('a compaction is labelled by what it did', () => {
@@ -60,4 +61,29 @@ test('the time horizon fits the context since the last compaction, toward where 
   assert.deepEqual(h.context.map(c => c.tokens), [10_000, 20_000, 30_000])
   // 1,000 tokens a second from 30k: 130s to the threshold
   assert.equal(Math.round(predictConsumption(h.context, h.compactThreshold!, 50)!.eta), 130)
+})
+
+test('a conversation of 200K tokens or more whose turn ended is forecast to compact 54 minutes after it last did anything', () => {
+  // Between turns the main agent isn't `idle` (its state stays `thinking`): its turn's end says so
+  const main = { id: 'orchestrator', state: 'thinking', tokensUsed: 240_000 } as Agent
+  const events: SimulationEvent[] = [
+    { time: 100, type: 'message', payload: { agent: 'orchestrator' } },
+    { time: 400, type: 'agent_idle', payload: { name: 'orchestrator' } }, // a transcript gone quiet, later
+    { time: 410, type: 'session_measure', payload: {} }, // measured, not done: the clock goes on
+  ]
+  assert.equal(idleCompactionIn(main, events, 430), 100 + IDLE_COMPACT.afterS - 430)
+  assert.equal(idleCompactionIn(main, events, 100 + IDLE_COMPACT.afterS + 1), undefined) // past due
+  assert.equal(idleCompactionIn({ ...main, tokensUsed: 150_000 }, events, 430), undefined)
+  assert.ok(idleCompactionIn({ ...main, tokensUsed: 150_000, idleCompactMin: 100_000 }, events, 430)! > 0)
+  // A turn under way, or the session over
+  assert.equal(idleCompactionIn(main, events.slice(0, 1), 430), undefined)
+  assert.equal(idleCompactionIn(main, [...events, { time: 420, type: 'tool_call_start', payload: {} }], 430), undefined)
+  assert.equal(idleCompactionIn(main, [...events, { time: 420, type: 'agent_complete', payload: { name: 'orchestrator', sessionEnd: true } }], 430), undefined)
+})
+
+test('a compaction is named by what started it', () => {
+  assert.equal(triggerLabel('manual'), '/compact')
+  assert.equal(triggerLabel('idle'), 'idle, before the cache lapsed')
+  assert.equal(triggerLabel('auto'), 'auto')
+  assert.equal(triggerLabel(undefined), 'compacted')
 })

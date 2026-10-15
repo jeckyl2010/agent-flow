@@ -328,3 +328,44 @@ test('no notification is raised with the notify option off', { options: { notify
 
   expect(raised).toEqual([])
 })
+
+test('a resumed subagent is sent as the same agent, resumed', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'sub-1' }))
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.agent.spawn({ tool_use_id: 'tu-1', prompt: 'Build', description: 'Build the app', subagentType: 'general-purpose' } as never)
+  await $.turn.complete({ answer: 'built', durationMs: 10, isAborted: false, turnId: 't1', agentId: 'sub-1', reason: 'completed' } as never)
+  await $.agent.spawn({
+    tool_use_id: 'tu-2', prompt: 'Now test it', description: 'Build the app', subagentType: 'general-purpose',
+    resume: { agentId: 'sub-1' },
+  } as never)
+  await clock.settle()
+
+  const starts = posts.map(p => p.body).filter(b => b.hook_event_name === 'SubagentStart')
+  expect(starts.map(b => [b.agent_id, b.resumed])).toEqual([['sub-1', undefined], ['sub-1', true]])
+  expect(starts[1]).toEqual(expect.objectContaining({ agent_type: 'general-purpose', description: 'Build the app' }))
+})
+
+test('an auto compaction 54 minutes after the last turn is sent as idle; one at the threshold as auto', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('turn.start', (_$, e) => e as never)
+  on('turn.complete', () => ({ text: '' }))
+  on('session.compact', (_$, e) => ({ messages: e.messages, tokensBefore: 240_000, tokensAfter: 12_000 }) as never)
+  const turn = async (id: string) => {
+    await $.turn.start({ text: 'go', turnId: id } as never)
+    await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: id, reason: 'completed' } as never)
+  }
+  const compact = () => $.session.compact({ trigger: 'auto', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as never)
+
+  await clock.advance(1_000)
+  await turn('t1')
+  await clock.advance(54 * 60_000)
+  await compact()
+  await turn('t2')
+  await compact()
+  await clock.settle()
+
+  const ends = posts.map(p => p.body).filter(b => b.hook_event_name === 'Compaction' && b.phase === 'end')
+  expect(ends.map(b => b.trigger)).toEqual(['idle', 'auto'])
+})

@@ -71,4 +71,31 @@ describe('compactions in a transcript', () => {
       fs.rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('an auto compaction 50 to 60 minutes after the latest entry is idle compaction’s; one sooner stays auto', () => {
+    const at = (iso: string, line: object) => JSON.stringify({ ...line, timestamp: iso })
+    const triggers = (lastEntry: string) => {
+      const { events, parser } = setup()
+      parser.processTranscriptLine(at(lastEntry, said('before')), ORCHESTRATOR_NAME, new Map(), new Set(), 's1', new Set())
+      parser.processTranscriptLine(JSON.stringify(boundary), ORCHESTRATOR_NAME, new Map(), new Set(), 's1', new Set())
+      return events.find(e => e.type === 'context_compaction')?.payload.trigger
+    }
+    // The boundary is written at 10:00
+    assert.equal(triggers('2026-10-06T09:06:00.000Z'), 'idle')
+    assert.equal(triggers('2026-10-06T09:58:00.000Z'), 'auto')
+    assert.equal(triggers('2026-10-06T07:00:00.000Z'), 'auto') // resumed hours later: not idle's
+  })
+
+  it('a compaction from before it was watched is told idle by the entry before it', () => {
+    const { session, parser } = setup()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-compaction-'))
+    const file = path.join(dir, 's1.jsonl')
+    fs.writeFileSync(file, [{ ...said('old'), timestamp: '2026-10-06T09:05:30.000Z' }, boundary].map(l => JSON.stringify(l)).join('\n') + '\n')
+    try {
+      parser.prescanExistingContent(file, fs.statSync(file).size, session)
+      assert.deepEqual(session.pastCompactions.map(c => c.trigger), ['idle'])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

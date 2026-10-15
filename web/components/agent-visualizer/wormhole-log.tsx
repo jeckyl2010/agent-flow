@@ -5,7 +5,7 @@ import type { Agent, Compaction, RateLimit, SimulationEvent } from '@/lib/agent-
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatCount } from '@/lib/utils'
-import { compactionDrop, compactionLabel, foldCompaction } from '@/lib/compaction'
+import { compactionDrop, compactionLabel, foldCompaction, idleCompactionIn, triggerLabel } from '@/lib/compaction'
 import { timeHorizon, predictConsumption, formatDuration } from '@/lib/time-horizon'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, stopPropagationHandlers } from './shared-ui'
@@ -115,7 +115,7 @@ export function WormholeLog({ visible, agents, events, currentTime, onClose }: W
           <span className="text-[11px] font-semibold tracking-[0.25em]" style={{ color: COLORS.wormholeRim }}>WORMHOLE LOG</span>
         </PanelHeader>
 
-        {main && <NextJump main={main} running={running} horizon={horizon} currentTime={currentTime} />}
+        {main && <NextJump main={main} running={running} horizon={horizon} idleIn={visible ? idleCompactionIn(main, events, currentTime) : undefined} currentTime={currentTime} />}
         {ownWindows.length > 0 && <SubagentJumps agents={ownWindows} />}
         {main?.rateLimits && main.rateLimits.length > 0 && <Limits limits={main.rateLimits} />}
 
@@ -140,10 +140,12 @@ export function WormholeLog({ visible, agents, events, currentTime, onClose }: W
 }
 
 /** How far the main agent's context is from the point it compacts at, and when it gets there */
-function NextJump({ main, running, horizon, currentTime }: {
+function NextJump({ main, running, horizon, idleIn, currentTime }: {
   main: Agent
   running?: Jump
   horizon?: ReturnType<typeof timeHorizon>
+  /** Seconds until idle compaction folds it, if it stays idle */
+  idleIn?: number
   currentTime: number
 }) {
   // Claude Code's own threshold where the bridge mod measured it; the window's edge otherwise
@@ -166,6 +168,12 @@ function NextJump({ main, running, horizon, currentTime }: {
           <span className="text-[9px] ml-2" style={{ color: COLORS.textDim }}>
             {forecast ? `at ${formatCount(forecast.rate)} tokens a minute` : 'the context isn’t growing lately'}
           </span>
+        </div>
+      )}
+      {idleIn !== undefined && !running && (
+        <div className="text-[9px] mb-1" style={{ color: COLORS.wormholeRim }}>
+          Idle jump in ~{formatDuration(idleIn)} if left alone
+          <span className="ml-1" style={{ color: COLORS.textDim }}>· before the prompt cache lapses</span>
         </div>
       )}
       <ProgressBar percent={fill * 100} color={fill > 0.85 ? COLORS.timePermission : COLORS.wormholeGlow} />
@@ -239,7 +247,7 @@ function JumpRow({ jump }: { jump: Jump }) {
       </div>
       <div className="flex justify-between text-[9px] mt-0.5" style={{ color: COLORS.textMuted }}>
         <span>
-          {jump.trigger === 'manual' ? '/compact' : jump.trigger === 'auto' ? 'auto' : jump.trigger ?? 'compacted'}
+          {triggerLabel(jump.trigger)}
           {!jump.isMain && ` · ${jump.agent}`}
           {jump.isHistory && ' · before watching'}
         </span>

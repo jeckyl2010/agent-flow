@@ -84,6 +84,9 @@ interface HookPayload {
   workflow_agent_index?: number
   /** SubagentStart (mod only): the token count its agent file says it compacts at (2.1.296+) */
   auto_compact_window?: number
+  /** SubagentStart (mod only): the agent run again, not a new one: a finished subagent resumed or a
+   *  teammate brought back (2.1.299+) */
+  resumed?: boolean
   /** SubagentStop (mod only): the report the subagent handed back */
   answer?: string
   // Stop (mod only): what the API said of a refusal that ended the turn
@@ -92,6 +95,8 @@ interface HookPayload {
   // runs at, and the rate-limit windows
   context_window?: number
   compact_threshold?: number
+  /** The context idle compaction needs (CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS), where it isn't 200K */
+  idle_compact_min_tokens?: number
   rate_limits?: Array<{ kind: string; percentUsed: number; resetsAt?: string }>
   // Compaction (mod only): as it starts, and as it ends or is skipped
   phase?: 'start' | 'end' | 'skipped'
@@ -439,12 +444,16 @@ export class HookServer implements vscode.Disposable {
       && typeof index === 'number' && Number.isInteger(index) && index >= 1
       ? { runId: payload.workflow_run_id, index }
       : undefined
+    // A resumed agent goes by the name and parent it had: the web wakes that node, not a new one.
     // A teammate goes by its name in the team: what the others address it by. A workflow's agents
     // often share a task, so each goes by its place in the run as well
+    const known = payload.resumed ? state.agentNames.get(agentId) : undefined
     const task = resolveSubagentChildName({ description: payload.description, subagent_type: payload.agent_type })
-    const childName = (payload.is_teammate && payload.agent_name)
+    const childName = known
+      || (payload.is_teammate && payload.agent_name)
       || (workflow ? workflowAgentName(task, workflow, state.agentNames.values()) : task)
-    const parentName = (payload.parent_agent_id && state.agentNames.get(payload.parent_agent_id)) || ORCHESTRATOR_NAME
+    const parentName = (known && state.agentParents.get(agentId))
+      || (payload.parent_agent_id && state.agentNames.get(payload.parent_agent_id)) || ORCHESTRATOR_NAME
     state.agentNames.set(agentId, childName)
     state.agentParents.set(agentId, parentName)
     nameReportedAgent(payload.session_id, agentId, childName) // what its transcript's lines go under
@@ -454,6 +463,7 @@ export class HookServer implements vscode.Disposable {
     }, parentName, childName, payload.description || childName, payload.session_id, {
       isTeammate: payload.is_teammate === true, workflow,
       ...(typeof payload.auto_compact_window === 'number' ? { autoCompactWindow: payload.auto_compact_window } : {}),
+      resumed: payload.resumed === true,
     })
     if (payload.model) {
       state.models.set(childName, payload.model)
@@ -636,6 +646,7 @@ export class HookServer implements vscode.Disposable {
         agent: ORCHESTRATOR_NAME,
         contextWindow: payload.context_window,
         ...(payload.compact_threshold ? { compactThreshold: payload.compact_threshold } : {}),
+        ...(payload.idle_compact_min_tokens ? { idleCompactMin: payload.idle_compact_min_tokens } : {}),
         rateLimits: (payload.rate_limits ?? []).map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
       },
     }, payload.session_id)

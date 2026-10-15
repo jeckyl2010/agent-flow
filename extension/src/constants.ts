@@ -156,8 +156,13 @@ export const GREP_TOKEN_MULTIPLIER = 0.5
 /** Token multiplier for other tool results */
 export const DEFAULT_TOKEN_MULTIPLIER = 0.3
 
-/** Base system prompt token estimate */
+/** Base system prompt token estimate, until a transcript records the requests' shape (2.1.300+) */
 export const SYSTEM_PROMPT_BASE_TOKENS = 5000
+
+/** Since 2.1.299 a conversation left idle about 54 minutes is compacted before its one-hour prompt
+ *  cache lapses, recorded as `auto`: one written this long after the latest entry is that */
+export const IDLE_COMPACT_AFTER_MS = 50 * 60_000
+export const IDLE_COMPACT_BEFORE_MS = 60 * 60_000
 
 /** Message hash prefix max (for dedup hashing) */
 export const HASH_PREFIX_MAX = 200
