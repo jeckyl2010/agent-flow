@@ -19,6 +19,7 @@ import {
   ORCHESTRATOR_NAME,
   FAILED_RESULT_MAX,
   SYSTEM_CONTENT_PREFIXES,
+  IDLE_COMPACT_AFTER_MS, IDLE_COMPACT_BEFORE_MS,
   generateSubagentFallbackName,
   resolveSubagentChildName,
 } from './constants'
@@ -43,13 +44,17 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object'
 }
 
-/** The compaction a transcript line records, or undefined for any other line */
-function compactBoundary(line: Record<string, unknown>): CompactionRecord | undefined {
+/** The compaction a transcript line records, or undefined for any other line. An `auto` one written
+ *  50 to 60 minutes after the conversation's latest entry is idle compaction's (2.1.299+) */
+function compactBoundary(line: Record<string, unknown>, lastEntryAt?: string): CompactionRecord | undefined {
   if (line.type !== 'system' || line.subtype !== 'compact_boundary') return undefined
   const meta = isRecord(line.compactMetadata) ? line.compactMetadata : {}
   const num = (v: unknown) => (typeof v === 'number' ? v : undefined)
+  const trigger = typeof meta.trigger === 'string' ? meta.trigger : undefined
+  const idleFor = typeof line.timestamp === 'string' && lastEntryAt ? Date.parse(line.timestamp) - Date.parse(lastEntryAt) : NaN
+  const isIdle = trigger === 'auto' && idleFor >= IDLE_COMPACT_AFTER_MS && idleFor < IDLE_COMPACT_BEFORE_MS
   return {
-    trigger: typeof meta.trigger === 'string' ? meta.trigger : undefined,
+    trigger: isIdle ? 'idle' : trigger,
     tokensBefore: num(meta.preTokens),
     tokensAfter: num(meta.postTokens),
     durationMs: num(meta.durationMs),
@@ -69,6 +74,29 @@ export function compactionPayload(agent: string, c: CompactionRecord, isHistory 
     // From before Agent Flow watched: listed, not shown happening
     ...(isHistory ? { isHistory: true } : {}),
   }
+}
+
+/**
+ * A request record of a 2.1.300+ transcript. An `api-request-shape` line holds the system prompt and
+ * tool definitions a request was sent with, kept by its hash; an `api-request` line names the shape
+ * it used. The main thread's request makes the context's system-prompt share the measured one, where
+ * it was a guess. Undefined for any other line; for one of these, whether it changed that share
+ */
+function readRequestRecord(line: Record<string, unknown>, session: WatchedSession | undefined): { measured: boolean } | undefined {
+  if (line.type === 'api-request-shape') {
+    const shape = isRecord(line.shape) ? line.shape : undefined
+    if (session && shape && typeof line.shapeHash === 'string') {
+      session.requestShapes.set(line.shapeHash, estimateTokensFromText(JSON.stringify(shape.system ?? '') + JSON.stringify(shape.tools ?? [])))
+    }
+    return { measured: false }
+  }
+  if (line.type !== 'api-request') return line.type === 'api-request-blob' ? { measured: false } : undefined
+  // `repl_main_thread`, or `repl_main_thread:outputStyle:<name>`; a subagent's is `agent:...`
+  const isMain = typeof line.querySource === 'string' && line.querySource.startsWith('repl_main_thread')
+  const tokens = isMain && session && typeof line.shapeHash === 'string' ? session.requestShapes.get(line.shapeHash) : undefined
+  if (!session || tokens === undefined || session.contextBreakdown.systemPrompt === tokens) return { measured: false }
+  session.contextBreakdown.systemPrompt = tokens
+  return { measured: true }
 }
 
 /** What the context holds after a compaction: the system prompt, and the summary that follows it */
@@ -147,9 +175,17 @@ export class TranscriptParser {
       return
     }
 
-    const compaction = compactBoundary(parsed)
+    const session = sessionId ? this.delegate.getSession(sessionId) : undefined
+    const isMainFile = agentName === ORCHESTRATOR_NAME
+    const compaction = compactBoundary(parsed, isMainFile ? session?.lastEntryAt : undefined)
     if (compaction) {
       this.handleCompaction(compaction, agentName, sessionId)
+      return
+    }
+
+    const request = readRequestRecord(parsed, isMainFile ? session : undefined)
+    if (request) {
+      if (request.measured && session) this.delegate.emitContextUpdate(agentName, session, sessionId)
       return
     }
 
@@ -166,6 +202,7 @@ export class TranscriptParser {
 
     const msg = parsed.message as TranscriptEntry['message'] | undefined
     if (!msg) { return }
+    if (session && isMainFile && typeof parsed.timestamp === 'string') session.lastEntryAt = parsed.timestamp
 
     // Now we know this is a valid transcript entry
     const entry: TranscriptEntry = {
@@ -181,8 +218,6 @@ export class TranscriptParser {
     }
 
     const role = msg.role // 'assistant', 'user', 'human'
-
-    const session = sessionId ? this.delegate.getSession(sessionId) : undefined
 
     // Extract model from assistant messages (updates tokensMax on the frontend).
     // Per-agent tracking: re-emit when the model changes (e.g. /model switch).
@@ -522,11 +557,16 @@ export class TranscriptParser {
         try {
           const entry = JSON.parse(line.trim()) as TranscriptEntry
           // Everything before a compaction left the context: its estimate starts over
-          const compaction = compactBoundary(entry as unknown as Record<string, unknown>)
+          const record = entry as unknown as Record<string, unknown>
+          const compaction = compactBoundary(record, session.lastEntryAt)
           if (compaction) {
             resetBreakdown(session)
             session.pastCompactions.push(compaction)
             continue
+          }
+          if (readRequestRecord(record, session)) continue
+          if ((entry.type === 'user' || entry.type === 'assistant') && typeof record.timestamp === 'string') {
+            session.lastEntryAt = record.timestamp
           }
           // Build dedup sets for tool_use blocks and messages + accumulate token counts
           const isUser = entry.message?.role === 'user' || entry.message?.role === 'human'

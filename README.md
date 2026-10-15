@@ -24,7 +24,8 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Multi-session support**: Track multiple concurrent agent sessions with tabs
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
 - **Timeline & transcript panels**: Review the full execution timeline, file attention heatmap, and message transcript
-- **Compactions as wormholes**: When Claude Code compacts a conversation, the agent's node opens a wormhole: the conversation spirals in while it is summarized, then jumps, showing what it left (`⟲ 967k → 13k`). The **Wormhole** log (`w`) lists every compaction, earlier ones included, and how far the context is from the next, at the rate it is growing; the time horizon marks each on its disk
+- **Compactions as wormholes**: When Claude Code compacts a conversation, the agent's node opens a wormhole: the conversation spirals in while it is summarized, then jumps, showing what it left (`⟲ 967k → 13k`). The **Wormhole** log (`w`) lists every compaction, earlier ones included, and how far the context is from the next, at the rate it is growing; the time horizon marks each on its disk. A conversation of 200K tokens or more left idle is compacted before its prompt cache lapses (Claude Code 2.1.299+, in the terminal): the log counts down to that, and names those compactions idle
+- **Measured system prompt**: from Claude Code 2.1.300 the transcript records the system prompt and tool definitions each request was sent with, and the context breakdown counts them, where it was a 5K guess
 - **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
 
 ## Getting Started
@@ -93,6 +94,9 @@ sessions it reports, Agent Flow shows:
   (2.1.292+)
 - where a subagent compacts when its agent file sets `autoCompactWindow`, in its card and the
   Wormhole log (2.1.296+; read from `.claude/agents/<type>.md` in the project, then `~/.claude`)
+- a finished subagent you resume, or a teammate brought back, as the same agent waking up, marked
+  resumed on its timeline (2.1.299+)
+- `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`, where you set it, for the idle compaction countdown
 
 It also raises a notification, through your own notification setting, for a refused turn, a
 subagent that failed, and a rate-limit window 90% used (2.1.295+). Turn it off with the mod's

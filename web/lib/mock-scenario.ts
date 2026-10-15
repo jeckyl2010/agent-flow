@@ -27,15 +27,15 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   // ── Agent Spawn & User Prompt ─────────────────────────────────────────────
   { time: 0.0, type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true, task: 'Waiting for instructions...' } },
   { time: 0.2, type: 'message', payload: { agent: 'orchestrator', role: 'user', content: 'Refactor the payment system to support Stripe and PayPal, add webhook handling, and write integration tests' } },
-  { time: 0.4, type: 'context_update', payload: { agent: 'orchestrator', tokens: 2200, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
+  { time: 0.4, type: 'context_update', payload: { agent: 'orchestrator', tokens: 19_900, breakdown: { systemPrompt: 19_200, userMessages: 700, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
   { time: 1.0, type: 'message', payload: { agent: 'orchestrator', role: 'thinking', content: 'This is a multi-part task: refactor payments, add Stripe + PayPal, webhooks, and tests. I should start by understanding the existing payment code before planning the implementation.' } },
   { time: 2.5, type: 'message', payload: { agent: 'orchestrator', content: 'I\'ll analyze the codebase and plan the payment system refactoring. Let me start by understanding the current structure.' } },
-  { time: 3.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 3000, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 0, reasoning: 800, subagentResults: 0 } } },
+  { time: 3.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 20_700, breakdown: { systemPrompt: 19_200, userMessages: 700, toolResults: 0, reasoning: 800, subagentResults: 0 } } },
 
   // ── Phase 1: Codebase Exploration ─────────────────────────────────────────
   { time: 4.0, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Glob', args: 'src/**/*.ts', inputData: { pattern: 'src/**/*.ts' } } },
   { time: 4.3, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Glob', result: '47 files matched', tokenCost: 500 } },
-  { time: 4.3, type: 'context_update', payload: { agent: 'orchestrator', tokens: 4200, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 500, reasoning: 1500, subagentResults: 0 } } },
+  { time: 4.3, type: 'context_update', payload: { agent: 'orchestrator', tokens: 21_900, breakdown: { systemPrompt: 19_200, userMessages: 700, toolResults: 500, reasoning: 1500, subagentResults: 0 } } },
 
   { time: 4.5, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Read', args: 'src/services/payment.ts', inputData: { file_path: 'src/services/payment.ts' } } },
   { time: 4.8, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Read', result: 'payment.ts — 234 lines, legacy payment processor with direct Stripe v2 API calls', tokenCost: 3500, discovery: { type: 'file', label: 'src/services/payment.ts', content: 'Legacy processor, 234 lines\nDirect Stripe v2 calls (outdated)\nNo PayPal support' } } },
@@ -45,7 +45,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 
   { time: 5.5, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Grep', args: '"stripe|paypal|payment" --type ts', inputData: { pattern: 'stripe|paypal|payment', type: 'ts' } } },
   { time: 5.8, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Grep', result: '28 matches in 9 files — concentrated in services/ and routes/', tokenCost: 700, discovery: { type: 'pattern', label: 'Payment references', content: '28 matches across 9 files\nConcentrated in services/ and routes/\nNo webhook handling found' } } },
-  { time: 6.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 11500, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 6500, reasoning: 2800, subagentResults: 0 } } },
+  { time: 6.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 29_200, breakdown: { systemPrompt: 19_200, userMessages: 700, toolResults: 6500, reasoning: 2800, subagentResults: 0 } } },
 
   // ── Phase 2: Planning (thinking — deciding on approach) ───────────────────
   { time: 8.0, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'TodoWrite', args: 'planning implementation', inputData: {
@@ -102,7 +102,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 21.5, type: 'agent_complete', payload: { name: 'research-agent' } },
 
   // ── Phase 4: Implementation (thinking — planning implementation) ──────────
-  { time: 22.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 25000, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 6500, reasoning: 6300, subagentResults: 10000 } } },
+  { time: 22.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 42_700, breakdown: { systemPrompt: 19_200, userMessages: 700, toolResults: 6500, reasoning: 6300, subagentResults: 10000 } } },
   { time: 22.5, type: 'message', payload: { agent: 'orchestrator', role: 'thinking', content: 'Both agents returned. I\'ll use the strategy pattern — a PaymentGateway with adapters for Stripe (PaymentIntents) and PayPal (Orders API v2). Need to install SDKs first, then write the abstraction layer.' } },
   { time: 23.5, type: 'message', payload: { agent: 'orchestrator', content: 'Research complete. Installing dependencies and implementing the payment gateway...' } },
 
@@ -134,7 +134,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 31.7, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Edit', args: 'src/routes/checkout.ts', inputData: { file_path: 'src/routes/checkout.ts', old_string: "router.post('/checkout')", new_string: "router.post('/checkout')\nrouter.post('/webhooks/stripe', stripeWebhook)\nrouter.post('/webhooks/paypal', paypalWebhook)" } } },
   { time: 32.0, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Edit', result: 'Added webhook routes to checkout.ts', tokenCost: 180 } },
 
-  { time: 32.2, type: 'context_update', payload: { agent: 'orchestrator', tokens: 38000, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 12500, reasoning: 13300, subagentResults: 10000 } } },
+  { time: 32.2, type: 'context_update', payload: { agent: 'orchestrator', tokens: 55_700, breakdown: { systemPrompt: 19_200, userMessages: 700, toolResults: 12500, reasoning: 13300, subagentResults: 10000 } } },
   { time: 33.0, type: 'message', payload: { agent: 'orchestrator', content: 'Core implementation done. Dispatching test agent for comprehensive testing...' } },
 
   // ── Phase 5: Testing ──────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 56.5, type: 'agent_complete', payload: { name: 'test-runner' } },
 
   // ── Phase 6: Final Verification (thinking — deciding on final steps) ──────
-  { time: 57.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 48000, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 12500, reasoning: 16800, subagentResults: 16500 } } },
+  { time: 57.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 65_700, breakdown: { systemPrompt: 19_200, userMessages: 700, toolResults: 12500, reasoning: 16800, subagentResults: 16500 } } },
   { time: 59.4, type: 'message', payload: { agent: 'orchestrator', content: 'Tests passing. Running type check and final verification...' } },
 
   { time: 59.6, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx tsc --noEmit 2>&1', inputData: { command: 'npx tsc --noEmit 2>&1', description: 'TypeScript type checking' } } },
@@ -207,9 +207,10 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   } } },
   { time: 62.4, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'TodoWrite', result: 'All 8 tasks completed', tokenCost: 80 } },
 
-  { time: 62.7, type: 'context_update', payload: { agent: 'orchestrator', tokens: 50000, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 12780, reasoning: 18520, subagentResults: 16500 } } },
+  { time: 62.7, type: 'context_update', payload: { agent: 'orchestrator', tokens: 67_700, breakdown: { systemPrompt: 19_200, userMessages: 700, toolResults: 12780, reasoning: 18520, subagentResults: 16500 } } },
   { time: 64.0, type: 'message', payload: { agent: 'orchestrator', content: 'Payment system refactored successfully. Created Stripe and PayPal adapters with a unified gateway using the strategy pattern, added webhook handling with signature verification, and all 18 integration tests pass with 91% coverage.' } },
-  { time: 65.0, type: 'agent_complete', payload: { name: 'orchestrator' } },
+  // The turn ends; the session goes on (the relay says so of a main turn's end)
+  { time: 65.0, type: 'agent_idle', payload: { name: 'orchestrator' } },
 ]
 
 // ── Model requests, as the agent-flow-bridge mod reports them ──────────────
@@ -243,8 +244,9 @@ const MODEL_STEPS: SimulationEvent[] = [
 
 // ── What the bridge mod adds on Claude Code 2.1.290 and later ────────────────
 // The measured window and rate limits, compactions (a wormhole each, and the log's history), the
-// advisor, agents messaging each other, a permission that says why it asks, and (2.1.292) a
-// workflow script's run of agents.
+// advisor, agents messaging each other, a permission that says why it asks, (2.1.292) a workflow
+// script's run of agents, (2.1.299) a finished subagent resumed, and the countdown to idle
+// compaction, here at the 50K that CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS sets.
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
 const minutesAhead = (m: number) => new Date(Date.now() + m * 60_000).toISOString()
 
@@ -269,7 +271,7 @@ function reviewAgent(file: string, index: number, start: number): SimulationEven
 
 const BRIDGE_EVENTS: SimulationEvent[] = [
   { time: 0.5, type: 'session_measure', payload: {
-    agent: 'orchestrator', contextWindow: 1_000_000, compactThreshold: 835_000,
+    agent: 'orchestrator', contextWindow: 1_000_000, compactThreshold: 835_000, idleCompactMin: 50_000,
     rateLimits: [
       { kind: 'five_hour', percentUsed: 34, resetsAt: minutesAhead(130) },
       { kind: 'seven_day', percentUsed: 61, resetsAt: minutesAhead(3 * 24 * 60) },
@@ -278,6 +280,7 @@ const BRIDGE_EVENTS: SimulationEvent[] = [
   // The session's earlier compactions, from before Agent Flow watched it
   { time: 0.5, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'auto', tokensBefore: 836_412, tokensAfter: 18_904, durationMs: 31_200, at: minutesAgo(190), isHistory: true } },
   { time: 0.5, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'manual', tokensBefore: 412_377, tokensAfter: 21_050, durationMs: 24_800, at: minutesAgo(75), isHistory: true } },
+  { time: 0.5, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'idle', tokensBefore: 233_918, tokensAfter: 16_402, durationMs: 22_100, at: minutesAgo(130), isHistory: true } },
 
   // The advisor, a tool the API runs itself, weighs in on the plan
   { time: 8.4, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'advisor', args: 'Strategy pattern or one adapter per provider?', inputData: { question: 'Strategy pattern or one adapter per provider?' } } },
@@ -297,15 +300,28 @@ const BRIDGE_EVENTS: SimulationEvent[] = [
   ...REVIEWED_FILES.flatMap((file, i) => reviewAgent(file, i + 1, 34.0 + i * 0.6)),
   { time: 42.6, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Workflow', result: '3 adapters reviewed: PayPal capture needs an idempotency key', tokenCost: 300 } },
 
+  // The finding goes back to the research agent, finished long since: it is resumed, the same agent
+  { time: 42.9, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'SendMessage', args: 'research-agent: how does PayPal make a capture idempotent?', inputData: { to: 'research-agent', message: 'How does PayPal make a capture idempotent?' } } },
+  { time: 43.1, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'SendMessage', result: 'research-agent resumed', tokenCost: 60 } },
+  { time: 43.2, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'research-agent', task: 'How does PayPal make a capture idempotent?' } },
+  { time: 43.2, type: 'agent_spawn', payload: { name: 'research-agent', parent: 'orchestrator', task: 'Research Stripe & PayPal integration patterns', model: 'claude-haiku-4-5', autoCompactWindow: 150_000, resumed: true } },
+  step(43.9, 'research-agent', 'tool_use', 300, 180, 9800, 400, 'high', 'claude-haiku-4-5'),
+  { time: 44.1, type: 'tool_call_start', payload: { agent: 'research-agent', tool: 'WebFetch', args: 'developer.paypal.com/docs/api/orders/v2', inputData: { url: 'https://developer.paypal.com/docs/api/orders/v2/' } } },
+  { time: 45.3, type: 'tool_call_end', payload: { agent: 'research-agent', tool: 'WebFetch', result: 'Orders v2: a PayPal-Request-Id header makes a request idempotent', tokenCost: 2200 } },
+  step(46.0, 'research-agent', 'end_turn', 200, 420, 12_100, 300, 'high', 'claude-haiku-4-5'),
+  { time: 46.3, type: 'subagent_return', payload: { child: 'research-agent', parent: 'orchestrator', summary: 'Send a PayPal-Request-Id header with each capture: a retry then returns the first result' } },
+  { time: 46.3, type: 'agent_complete', payload: { name: 'research-agent' } },
+
   // The schema needs the new providers: a settings rule asks before any migration runs
   { time: 56.8, type: 'permission_requested', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx prisma migrate dev --name payment_providers', message: 'Bash: npx prisma migrate dev --name payment_providers', title: 'Permission needed', why: 'Rule Bash(npx prisma migrate:*)' } },
   { time: 58.6, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx prisma migrate dev --name payment_providers', inputData: { command: 'npx prisma migrate dev --name payment_providers' } } },
   { time: 59.3, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Bash', result: 'Applied migration 20261006_payment_providers', tokenCost: 150 } },
 
-  // Afterwards you compact the session by hand: the finale
-  { time: 66.0, type: 'message', payload: { agent: 'orchestrator', role: 'user', content: '/compact keep the adapter design and the open follow-ups' } },
-  { time: 66.3, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'start', trigger: 'manual', at: minutesAgo(0) } },
-  { time: 70.2, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'manual', tokensBefore: 52_400, tokensAfter: 6_100, durationMs: 3_900, at: minutesAgo(0) } },
+  // Left alone, the conversation would compact itself before its prompt cache lapses: the wormhole
+  // log counts down to it. You compact it by hand first: the finale
+  { time: 71.0, type: 'message', payload: { agent: 'orchestrator', role: 'user', content: '/compact keep the adapter design and the open follow-ups' } },
+  { time: 71.3, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'start', trigger: 'manual', at: minutesAgo(0) } },
+  { time: 75.2, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'manual', tokensBefore: 70_100, tokensAfter: 6_100, durationMs: 3_900, at: minutesAgo(0) } },
 ]
 
 const WITH_MODEL_STEPS = [...NORMAL_MOCK_SCENARIO, ...MODEL_STEPS, ...BRIDGE_EVENTS].sort((a, b) => a.time - b.time)
@@ -326,16 +342,19 @@ export interface TourStop {
 
 /**
  * The demo's tour of the views, in step with the scenario: the canvas while agents fan out, the
- * time horizon as they land, the timeline through the tests, the canvas for the compaction's
- * wormhole, then the horizon with its mark on the disk and the wormhole log to end. It stops for
- * good at the viewer's first click, scroll or key.
+ * time horizon as they land, the canvas as the research agent is resumed, the timeline through the
+ * tests (its resumed mark), the wormhole log counting down to idle compaction once the turn ends,
+ * the canvas for the compaction's wormhole, then the horizon with its mark on the disk and the
+ * wormhole log to end. It stops for good at the viewer's first click, scroll or key.
  */
 export const DEMO_TOUR: TourStop[] = stressLevel ? [] : [
   { at: 0 },
   { at: 22, horizon: true },
   { at: 31 },
-  { at: 45, timeline: true },
+  { at: 45.5, timeline: true },
   { at: 53 },
-  { at: 73.8, horizon: true },
-  { at: 77.5, wormholeLog: true },
+  { at: 65.5, wormholeLog: true },
+  { at: 70.6 },
+  { at: 78.8, horizon: true },
+  { at: 82.5, wormholeLog: true },
 ]

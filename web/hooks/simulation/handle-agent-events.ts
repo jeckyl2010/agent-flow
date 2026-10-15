@@ -8,6 +8,7 @@ import { AGENT_SPAWN_DISTANCE } from '@/lib/canvas-constants'
 import { asWorkflow, latestOfRun, WORKFLOW_STEP_ANGLE } from '@/lib/workflow'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { edgeId, asString, asBoolean } from './types'
+import { addMarker } from './handle-session-events'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -28,10 +29,11 @@ export function handleAgentSpawn(
     ? payload.autoCompactWindow
     : undefined
 
-  // If the agent already exists (e.g. session resuming after inactivity),
-  // reactivate it instead of replacing — preserves accumulated stats.
+  // If the agent already exists (e.g. session resuming after inactivity, or a finished subagent
+  // resumed, 2.1.299+), reactivate it instead of replacing — preserves accumulated stats.
   const existing = state.agents.get(name)
   if (existing) {
+    if (payload.resumed === true) addMarker(state, existing, currentTime, 'resumed', COLORS.complete)
     state.agents.set(name, {
       ...existing,
       state: 'idle',
@@ -120,6 +122,7 @@ export function handleAgentSpawn(
   }
   pushTimelineBlock(timelineEntry, currentTime, { type: 'idle', label: 'Starting', color: COLORS.idle }, ctx)
   state.timelineEntries.set(name, timelineEntry)
+  if (payload.resumed === true) addMarker(state, agent, currentTime, 'resumed', COLORS.complete)
 
   state.conversations.set(name, [])
 

@@ -41,6 +41,10 @@ const RATE_LIMIT_NAMES: Record<string, string> = { five_hour: '5-hour', seven_da
 /** The range Claude Code takes for an agent's `autoCompactWindow`; a value outside it isn't used */
 const COMPACT_WINDOW_MIN = 100_000
 const COMPACT_WINDOW_MAX = 1_000_000
+/** Since 2.1.299 a conversation left idle about 54 minutes is compacted before its one-hour prompt
+ *  cache lapses. The engine raises it as `auto`: one this long after the last turn ended is that */
+const IDLE_COMPACT_AFTER_MS = 50 * 60_000
+const IDLE_COMPACT_BEFORE_MS = 60 * 60_000
 
 let sessionId: string | undefined
 let cwd = ''
@@ -64,6 +68,11 @@ let statusTimer: { cancel(): void } | undefined
  *  it's off): the threshold is read again only when the window changes, as on a /model switch */
 let measuredWindow = 0
 let compactThreshold: number | undefined
+/** CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS: the context idle compaction needs, where it isn't 200K */
+let idleCompactMin: number | undefined
+/** Whether the main loop's turn is running, and when its last one ended (0 before any) */
+let isTurnRunning = false
+let lastTurnEnd = 0
 /** agentId → the task it was spawned for, which a notification names it by */
 const descriptions = new Map<string, string>()
 /** agent type → the `autoCompactWindow` its agent file sets, or undefined where it sets none */
@@ -126,6 +135,8 @@ export const register: Register = (on, options) => {
     cwd = e.cwd
     realCwd = ''
     inference = await readInference($).catch(() => ({ platform: 'anthropic' as const }))
+    const idleMin = Number(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS').catch(() => undefined))
+    idleCompactMin = Number.isFinite(idleMin) && idleMin > 0 ? idleMin : undefined
     send($, { hook_event_name: 'SessionStart' })
     await $.command.register({ name: 'agent-flow', description: 'Shows where the Agent Flow bridge sends this session’s events.' })
     return next(e)
@@ -158,6 +169,8 @@ export const register: Register = (on, options) => {
     statusTimer = undefined
     measuredWindow = 0
     compactThreshold = undefined
+    isTurnRunning = false
+    lastTurnEnd = 0
     return next(e)
   })
 
@@ -225,7 +238,9 @@ export const register: Register = (on, options) => {
     const spawned = await next(e)
     if (spawned.agentId) {
       // Since 2.1.289 a teammate's spawn comes here too, with its name in the team, and since
-      // 2.1.292 a workflow script's, with its run and its place in it; older engines leave these out
+      // 2.1.292 a workflow script's, with its run and its place in it; older engines leave these out.
+      // Since 2.1.299 a finished subagent or a teammate brought back is too (`resume`): the same
+      // agent, which Agent Flow wakes rather than starts
       agentTypes.set(spawned.agentId, e.subagentType)
       descriptions.set(spawned.agentId, e.description)
       if (e.isTeammate) teammates.add(spawned.agentId)
@@ -239,10 +254,18 @@ export const register: Register = (on, options) => {
         ...(e.isTeammate ? { is_teammate: true, agent_name: e.name } : {}),
         ...(e.workflow ? { workflow_run_id: e.workflow.runId, workflow_agent_index: e.workflow.agentIndex } : {}),
         ...(compactWindow !== undefined ? { auto_compact_window: compactWindow } : {}),
+        ...(e.resume ? { resumed: true } : {}),
       })
       watchStatuses($)
     }
     return spawned
+  })
+
+  // Since 2.1.299 subagents' and teammates' turns come here too (with an agentId): only the main
+  // loop's says the conversation is busy
+  on('turn.start', async ($, e, next) => {
+    if (!e.agentId) isTurnRunning = true
+    return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -260,6 +283,8 @@ export const register: Register = (on, options) => {
       statuses.delete(e.agentId)
       descriptions.delete(e.agentId)
     } else {
+      isTurnRunning = false
+      lastTurnEnd = await $.clock.now()
       send($, {
         hook_event_name: 'Stop', reason: e.reason, duration_ms: e.durationMs,
         // What the API said of a refusal that ended the turn, the classifier's category and why
@@ -289,6 +314,7 @@ export const register: Register = (on, options) => {
         context_window: context.window,
         ...(context.tokens !== undefined ? { context_tokens: context.tokens } : {}),
         ...(compactThreshold !== undefined ? { compact_threshold: compactThreshold } : {}),
+        ...(idleCompactMin !== undefined ? { idle_compact_min_tokens: idleCompactMin } : {}),
         rate_limits: rateLimits,
       })
     }
@@ -300,7 +326,10 @@ export const register: Register = (on, options) => {
   // and the context it left. One computed ahead of time (`precompute`) changes nothing yet
   on('session.compact', async ($, e, next) => {
     if (e.trigger === 'precompute') return next(e)
-    const fields = { trigger: e.trigger, ...agentFields(e.agentId) }
+    const idleFor = lastTurnEnd > 0 ? await $.clock.now() - lastTurnEnd : 0
+    const isIdle = e.trigger === 'auto' && !e.agentId && !isTurnRunning && lastTurnEnd > 0
+      && idleFor >= IDLE_COMPACT_AFTER_MS && idleFor < IDLE_COMPACT_BEFORE_MS
+    const fields = { trigger: isIdle ? 'idle' : e.trigger, ...agentFields(e.agentId) }
     send($, { hook_event_name: 'Compaction', phase: 'start', ...fields, messages_before: e.messages.length })
     const startedAt = Date.now()
     try {

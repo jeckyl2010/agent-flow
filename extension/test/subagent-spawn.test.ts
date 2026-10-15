@@ -22,4 +22,9 @@ describe('emitSubagentSpawn', () => {
     assert.equal('autoCompactWindow' in spawned(), false)
     assert.equal('autoCompactWindow' in spawned({ isTeammate: true }), false)
   })
+
+  it('says when the agent is run again rather than started', () => {
+    assert.equal(spawned({ resumed: true }).resumed, true)
+    assert.equal('resumed' in spawned(), false)
+  })
 })
