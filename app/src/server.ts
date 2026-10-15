@@ -3,12 +3,9 @@
  * Reuses the extension's hook server, transcript parser, and session watcher.
  */
 import * as http from 'http'
-import * as os from 'os'
-import * as path from 'path'
 import { exec, execFile } from 'child_process'
 
 import { createRelay } from '../../scripts/relay'
-import { createTelemetryClient } from '../../scripts/telemetry'
 import { serveStatic } from './static'
 
 interface ServerOptions {
@@ -21,14 +18,7 @@ interface ServerOptions {
 export async function startServer(options: ServerOptions) {
   const { port, openBrowser, workspace } = options
 
-  const configDir = path.join(os.homedir(), '.agent-flow')
-  const telemetry = createTelemetryClient({
-    logDir: path.join(configDir, 'telemetry'),
-    installIdPath: path.join(configDir, 'installation-id'),
-  })
-  await telemetry.init()
-
-  const relay = await createRelay({ workspace, verbose: options.verbose, telemetry })
+  const relay = await createRelay({ workspace, verbose: options.verbose })
 
   const server = http.createServer((req, res) => {
     // SSE endpoint
@@ -55,22 +45,21 @@ export async function startServer(options: ServerOptions) {
     }
   })
 
-  // Cleanup on exit. Idempotent — repeat signals (Ctrl+C spam, SIGTERM+SIGHUP,
-  // etc.) would otherwise emit duplicate session_end events and race the
-  // telemetry sync loop against itself.
+  // Cleanup on exit. Idempotent: repeat signals (Ctrl+C spam, SIGTERM+SIGHUP)
+  // would otherwise dispose the relay twice.
   let shuttingDown = false
   function cleanup() {
     if (shuttingDown) return
     shuttingDown = true
     server.close()
     relay.dispose()
-    void telemetry.dispose().finally(() => process.exit(0))
+    process.exit(0)
   }
   process.on('SIGINT', cleanup)
   process.on('SIGTERM', cleanup)
   // SIGHUP fires when the controlling terminal closes (SSH session drops, tmux
-  // pane killed). Without a handler, Node's default behavior is to terminate
-  // without running cleanup — so session_end never flushes.
+  // pane killed). Without a handler, Node terminates without running cleanup,
+  // leaving the discovery file behind.
   process.on('SIGHUP', cleanup)
 }
 

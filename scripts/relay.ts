@@ -22,7 +22,6 @@ import {
 } from '../extension/src/constants'
 import { createWatchedSession } from '../extension/src/watched-session'
 import { setLogLevel } from '../extension/src/logger'
-import type { TelemetryClient } from './telemetry'
 
 const MAX_EVENT_BUFFER = 5000
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow')
@@ -30,29 +29,6 @@ const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
 
 let relayCreated = false
 let verbose = false
-let sessionEventCount = 0
-/** Distinct model IDs seen across all watched sessions during this relay session.
- *  Populated from `model_detected` events (emitted by both the Claude transcript
- *  parser and the Codex rollout parser). Read at session_end for telemetry. */
-const observedModels = new Set<string>()
-
-// agent-flow-app version. Inlined by esbuild at bundle time via `define`.
-// In dev (running from source via tsx), falls back to reading app/package.json.
-declare const AGENT_FLOW_APP_VERSION: string | undefined
-function resolveAgentFlowVersion(): string {
-  try {
-    if (typeof AGENT_FLOW_APP_VERSION === 'string' && AGENT_FLOW_APP_VERSION) {
-      return AGENT_FLOW_APP_VERSION
-    }
-  } catch { /* ReferenceError in unbundled dev — fall through */ }
-  try {
-    const pkgPath = path.join(__dirname, '..', 'app', 'package.json')
-    if (fs.existsSync(pkgPath)) {
-      return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version ?? '0.0.0'
-    }
-  } catch { /* ignore */ }
-  return '0.0.0'
-}
 
 function log(...args: unknown[]) {
   if (verbose) console.log(...args)
@@ -81,11 +57,6 @@ function broadcast(data: string) {
 const eventBuffer = new Map<string, AgentEvent[]>()
 
 function broadcastEvent(event: AgentEvent) {
-  sessionEventCount++
-  if (event.type === 'model_detected') {
-    const m = (event.payload as { model?: unknown } | undefined)?.model
-    if (typeof m === 'string' && m.length > 0) observedModels.add(m)
-  }
   const sid = event.sessionId?.slice(0, SESSION_ID_DISPLAY) || '?'
   log(`[event] ${event.type} (session ${sid})`)
 
@@ -345,7 +316,6 @@ export type RelayRuntimeMode = 'claude' | 'codex' | 'auto'
 export interface RelayOptions {
   workspace: string
   verbose?: boolean
-  telemetry?: TelemetryClient
   /** Which runtimes to watch. Defaults to AGENT_FLOW_RUNTIME env var, or 'auto'.
    *  Mirrors the extension's `agentVisualizer.runtime` setting so users of the
    *  dev relay and `npx agent-flow-app` have a way to opt out of one runtime. */
@@ -422,35 +392,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     codexWatcher.start()
   }
 
-  const telemetry = options.telemetry
-  const sessionStart = Date.now()
   let relayDisposed = false
-  const relaySessionId = `relay-${process.pid}-${Math.floor(sessionStart / 1000)}`
-  sessionEventCount = 0
-
-  const agentFlowVersion = resolveAgentFlowVersion()
-
-  const baseEvent = () => ({
-    session_id: relaySessionId,
-    agent_flow_version: agentFlowVersion,
-    os: os.platform(),
-    arch: os.arch(),
-  })
-
-  telemetry?.emit({ ...baseEvent(), event_type: 'session_start' })
-
-  process.on('uncaughtException', (err) => {
-    try {
-      telemetry?.emit({
-        ...baseEvent(),
-        event_type: 'error',
-        error_class: err?.constructor?.name ?? 'Error',
-      })
-    } catch { /* don't let the handler itself crash */ }
-    // Preserve default crash-on-uncaught behavior: log, then exit.
-    console.error(err)
-    process.exit(1)
-  })
 
   return {
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -503,16 +445,6 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // callers or hot-reload could call this twice.
       if (relayDisposed) return
       relayDisposed = true
-      const models = [...observedModels].sort().join(',').slice(0, 128)
-      const runtimes = [wantClaude && 'claude', wantCodex && 'codex'].filter(Boolean).join(',')
-      telemetry?.emit({
-        ...baseEvent(),
-        event_type: 'session_end',
-        duration_s: Math.round((Date.now() - sessionStart) / 1000),
-        event_count: sessionEventCount,
-        models: models || undefined,
-        runtimes: runtimes || undefined,
-      })
       if (wantClaude) {
         removeDiscoveryFile()
         hookServer?.dispose()
