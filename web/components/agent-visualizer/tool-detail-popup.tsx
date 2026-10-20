@@ -14,6 +14,7 @@ interface ToolDetailPopupProps {
     result?: string
     tokenCost?: number
     inputData?: Record<string, unknown>
+    readOnly?: boolean
   }
   position: { x: number; y: number }
   onClose: () => void
@@ -34,6 +35,12 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
         <span className="text-[9px] font-mono capitalize" style={{ color: stateColor + '90' }}>
           {tool.state}
         </span>
+        {tool.readOnly && (
+          <span className="text-[8px] font-mono px-1 rounded" title="Its tool held this input read-only (the bridge mod)"
+            style={{ color: COLORS.textDim, border: `1px solid ${COLORS.holoBorder12}` }}>
+            read-only
+          </span>
+        )}
       </PanelHeader>
 
       {/* Rich content */}

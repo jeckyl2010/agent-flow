@@ -23,6 +23,7 @@ export type AgentEventType =
   | 'permission_requested'
   | 'context_compaction'
   | 'session_measure'
+  | 'session_resume'
   | 'agent_message'
   | 'turn_failed'
   | 'error'
@@ -140,7 +141,9 @@ export function emitSubagentSpawn(
   child: string,
   task: string,
   sessionId?: string,
-  { isTeammate = false, workflow, autoCompactWindow, resumed = false }: { isTeammate?: boolean; workflow?: WorkflowPlace; autoCompactWindow?: number; resumed?: boolean } = {},
+  { isTeammate = false, workflow, autoCompactWindow, resumed = false, fork = false, background = false }: {
+    isTeammate?: boolean; workflow?: WorkflowPlace; autoCompactWindow?: number; resumed?: boolean; fork?: boolean; background?: boolean
+  } = {},
 ): void {
   emitter.emit({
     time: emitter.elapsed(sessionId),
@@ -155,6 +158,10 @@ export function emitSubagentSpawn(
       ...(autoCompactWindow ? { autoCompactWindow } : {}),
       // The same agent run again (2.1.299+): a finished subagent resumed, a teammate brought back
       ...(resumed ? { resumed: true } : {}),
+      // A fork inherits its parent's context and prompt cache; a background agent works on after
+      // the turn that started it ends
+      ...(fork ? { fork: true } : {}),
+      ...(background ? { background: true } : {}),
     },
   }, sessionId)
 }
@@ -255,6 +262,12 @@ export interface WatchedSession {
   requestShapes: Map<string, number>
   /** When the main conversation's latest user or assistant entry was written, ISO 8601 */
   lastEntryAt?: string
+  /** What ran the session (`cli` in the terminal, `sdk-ts`, `claude-vscode`...) and in which
+   *  directory, as its transcript's entries say: whether idle compaction can run there */
+  entrypoint?: string
+  cwd?: string
+  /** The web was told idle compaction won't run, or that it can: told once */
+  isIdleCompactionTold?: boolean
 }
 
 /** A compaction as the transcript records it (a `compact_boundary` entry) */

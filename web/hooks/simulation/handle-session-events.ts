@@ -1,4 +1,4 @@
-import type { Agent, RateLimit } from '@/lib/agent-types'
+import type { Agent, RateLimit, SessionResume } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { compactionLabel, foldCompaction } from '@/lib/compaction'
 import { asString, asNumber, asBoolean } from './types'
@@ -65,8 +65,31 @@ export function handleSessionMeasure(
     ...(window > 0 ? { tokensMax: window } : {}),
     compactThreshold: optNumber(payload.compactThreshold) ?? main.compactThreshold,
     idleCompactMin: optNumber(payload.idleCompactMin) ?? main.idleCompactMin,
+    idleCompaction: typeof payload.idleCompaction === 'boolean' ? payload.idleCompaction : main.idleCompaction,
     rateLimits,
   })
+}
+
+/** A conversation resumed (or forked) from an earlier one: how long it sat, and what its first
+ *  request writes to the prompt cache again where it lapsed, as Claude Code estimated it */
+export function handleSessionResume(
+  payload: Record<string, unknown>,
+  currentTime: number,
+  state: MutableEventState,
+): void {
+  const main = findMain(state.agents)
+  const idleSeconds = optNumber(payload.idleSeconds)
+  if (!main || idleSeconds === undefined) return
+  const resume: SessionResume = {
+    time: currentTime,
+    source: payload.source === 'fork' ? 'fork' : 'resume',
+    idleSeconds,
+    contextTokens: optNumber(payload.contextTokens),
+    cacheExpired: typeof payload.cacheExpired === 'boolean' ? payload.cacheExpired : undefined,
+    estimatedUsd: optNumber(payload.estimatedUsd),
+  }
+  state.agents.set(main.id, { ...main, resume })
+  addMarker(state, main, currentTime, resume.source === 'fork' ? 'forked' : 'resumed', COLORS.complete)
 }
 
 /** A message one agent sent another (SendMessage): drawn from the sender to the recipient */

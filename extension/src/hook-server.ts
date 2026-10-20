@@ -12,6 +12,7 @@ import { summarizeInput, summarizeResult, extractFilePath, buildDiscovery } from
 import { estimateTokenCost } from './token-estimator'
 import { createLogger } from './logger'
 import { markModSession, forgetModSession, nameReportedAgent } from './mod-sessions'
+import { permissionWhy } from './permission-why'
 
 const log = createLogger('HookServer')
 
@@ -50,6 +51,13 @@ interface HookPayload {
   /** Why the check asked, and the settings rule that decided (mod only) */
   reason?: string
   rule?: string
+  /** The classic hook event, or the setting, whose check asked; `person` where only a person may
+   *  answer it, no classifier (mod only, 2.1.304+) */
+  hook?: string
+  setting?: string
+  decider?: string
+  /** PostToolUse / PostToolUseFailure (mod only): the tool held this input read-only (2.1.304+) */
+  read_only?: boolean
   // Notification
   notification_type?: string
   message?: string
@@ -87,6 +95,10 @@ interface HookPayload {
   /** SubagentStart (mod only): the agent run again, not a new one: a finished subagent resumed or a
    *  teammate brought back (2.1.299+) */
   resumed?: boolean
+  /** SubagentStart (mod only): a fork, which inherits its parent's context and prompt cache, and an
+   *  agent run in the background, which works on after the turn that started it ends */
+  fork?: boolean
+  background?: boolean
   /** SubagentStop (mod only): the report the subagent handed back */
   answer?: string
   // Stop (mod only): what the API said of a refusal that ended the turn
@@ -97,13 +109,22 @@ interface HookPayload {
   compact_threshold?: number
   /** The context idle compaction needs (CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS), where it isn't 200K */
   idle_compact_min_tokens?: number
+  /** False where idle compaction won't run: outside the terminal, or turned off in settings.json */
+  idle_compaction?: boolean
   rate_limits?: Array<{ kind: string; percentUsed: number; resetsAt?: string }>
+  // SessionStart (a command hook's, on a resume or fork) and SessionResume (mod): how long the
+  // conversation sat, its context, and Claude Code's estimate of re-caching it
+  source?: string
+  seconds_since_last_response?: number
+  prompt_cache_likely_expired?: boolean
+  estimated_cache_write_usd?: number
   // Compaction (mod only): as it starts, and as it ends or is skipped
   phase?: 'start' | 'end' | 'skipped'
   trigger?: string
   tokens_before?: number
   tokens_after?: number
   duration_ms?: number
+  // (and usage, as ModelStep's: what the summary itself cost)
   // AgentMessage (mod only): a message the model sent another agent, and the recipient's agent id
   // (absent for the main agent)
   to_agent_id?: string
@@ -134,14 +155,8 @@ interface SessionHookState {
   /** Each agent's measured usage so far (by name), per model: sent whole with every request, so
    *  a page that connects late still shows it all */
   usageTotals: Map<string, UsageTotals>
-}
-
-/** Why a permission dialog asks, in a few words: the organization's requirement, the settings
- *  rule, or the check's own reason (mod only) */
-function permissionWhy(payload: HookPayload): string | undefined {
-  if (payload.ceiling === 'ask') return 'Your organization requires approval'
-  if (payload.rule) return `Rule ${payload.rule}`
-  return payload.reason
+  /** A resume was shown: the command hook and the mod both report it */
+  isResumeShown: boolean
 }
 
 export class HookServer implements vscode.Disposable {
@@ -229,7 +244,7 @@ export class HookServer implements vscode.Disposable {
   private getOrCreateSession(sessionId: string): SessionHookState {
     let state = this.sessionState.get(sessionId)
     if (!state) {
-      state = { startTime: Date.now(), agentNames: new Map(), agentParents: new Map(), toolUses: new Map(), sawPermissionRequest: false, isModFed: false, models: new Map(), usageTotals: new Map() }
+      state = { startTime: Date.now(), agentNames: new Map(), agentParents: new Map(), toolUses: new Map(), sawPermissionRequest: false, isModFed: false, models: new Map(), usageTotals: new Map(), isResumeShown: false }
       this.sessionState.set(sessionId, state)
     }
     return state
@@ -254,6 +269,10 @@ export class HookServer implements vscode.Disposable {
     switch (eventName) {
       case 'SessionStart':
         this.handleSessionStart(payload)
+        this.handleSessionResume(payload)
+        break
+      case 'SessionResume':
+        this.handleSessionResume(payload)
         break
       case 'PreToolUse':
         this.startToolUse(payload)
@@ -315,6 +334,29 @@ export class HookServer implements vscode.Disposable {
         name: ORCHESTRATOR_NAME,
         isMain: true,
         task: `Session ${payload.session_id.slice(0, SESSION_ID_DISPLAY)}`,
+      },
+    }, payload.session_id)
+  }
+
+  /** A conversation resumed (or forked) from an earlier one: how long it sat, the context its first
+   *  request sends again, and, where the prompt cache lapsed meanwhile, what Claude Code estimates
+   *  re-caching it costs. The command hook's SessionStart says so, and the mod's copy of it */
+  private handleSessionResume(payload: HookPayload): void {
+    if (payload.source !== 'resume' && payload.source !== 'fork') return
+    if (typeof payload.seconds_since_last_response !== 'number') return
+    const state = this.getOrCreateSession(payload.session_id)
+    if (state.isResumeShown) return
+    state.isResumeShown = true
+    this.emit({
+      time: this.elapsedSeconds(payload.session_id),
+      type: 'session_resume',
+      payload: {
+        agent: ORCHESTRATOR_NAME,
+        source: payload.source,
+        idleSeconds: payload.seconds_since_last_response,
+        ...(typeof payload.context_tokens === 'number' ? { contextTokens: payload.context_tokens } : {}),
+        ...(typeof payload.prompt_cache_likely_expired === 'boolean' ? { cacheExpired: payload.prompt_cache_likely_expired } : {}),
+        ...(typeof payload.estimated_cache_write_usd === 'number' ? { estimatedUsd: payload.estimated_cache_write_usd } : {}),
       },
     }, payload.session_id)
   }
@@ -385,6 +427,7 @@ export class HookServer implements vscode.Disposable {
         result: result.slice(0, RESULT_MAX),
         tokenCost,
         ...(discovery ? { discovery } : {}),
+        ...(payload.read_only === true ? { readOnly: true } : {}),
       },
     }, payload.session_id)
   }
@@ -408,6 +451,7 @@ export class HookServer implements vscode.Disposable {
         // The UI shows a failure in its error state; an interrupt was the user's choice, not a failure.
         isError: !payload.is_interrupt,
         errorMessage: reason.slice(0, FAILED_RESULT_MAX) || undefined,
+        ...(payload.read_only === true ? { readOnly: true } : {}),
       },
     }, payload.session_id)
   }
@@ -464,6 +508,8 @@ export class HookServer implements vscode.Disposable {
       isTeammate: payload.is_teammate === true, workflow,
       ...(typeof payload.auto_compact_window === 'number' ? { autoCompactWindow: payload.auto_compact_window } : {}),
       resumed: payload.resumed === true,
+      fork: payload.fork === true,
+      background: payload.background === true,
     })
     if (payload.model) {
       state.models.set(childName, payload.model)
@@ -647,6 +693,7 @@ export class HookServer implements vscode.Disposable {
         contextWindow: payload.context_window,
         ...(payload.compact_threshold ? { compactThreshold: payload.compact_threshold } : {}),
         ...(payload.idle_compact_min_tokens ? { idleCompactMin: payload.idle_compact_min_tokens } : {}),
+        idleCompaction: payload.idle_compaction !== false,
         rateLimits: (payload.rate_limits ?? []).map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
       },
     }, payload.session_id)
@@ -655,17 +702,21 @@ export class HookServer implements vscode.Disposable {
   /** A conversation compacted: as it starts, and as it ends, with the context it left. */
   private handleCompaction(payload: HookPayload): void {
     if (payload.agent_id && !this.sessionState.get(payload.session_id)?.agentNames.has(payload.agent_id)) return
+    const agent = this.resolveAgentName(payload)
+    // The model its summary ran on, which prices it: the agent's, as last reported
+    const model = this.sessionState.get(payload.session_id)?.models.get(agent)
     this.emit({
       time: this.elapsedSeconds(payload.session_id),
       type: 'context_compaction',
       payload: {
-        agent: this.resolveAgentName(payload),
+        agent,
         phase: payload.phase ?? 'end',
         ...(payload.trigger ? { trigger: payload.trigger } : {}),
         ...(payload.tokens_before !== undefined ? { tokensBefore: payload.tokens_before } : {}),
         ...(payload.tokens_after !== undefined ? { tokensAfter: payload.tokens_after } : {}),
         ...(payload.duration_ms !== undefined ? { durationMs: payload.duration_ms } : {}),
         ...(payload.reason ? { reason: payload.reason } : {}),
+        ...(payload.usage ? { usage: payload.usage, ...(model ? { model } : {}) } : {}),
         at: new Date().toISOString(),
       },
     }, payload.session_id)

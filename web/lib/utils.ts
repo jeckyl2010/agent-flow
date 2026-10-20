@@ -61,3 +61,8 @@ export function modelTagLabel(model: string, effort?: string): string {
   const name = formatModelName(model).toUpperCase()
   return effort ? `${name} · ${effort.toUpperCase()}` : name
 }
+
+/** A small amount of money with the digits that show it: $0.0066, $0.26, $1.40 */
+export function formatUsd(v: number): string {
+  return `$${v.toFixed(v < 0.01 ? 4 : v < 1 ? 3 : 2)}`
+}

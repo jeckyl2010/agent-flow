@@ -21,6 +21,10 @@ interface AgentDetailCardProps {
     pendingPermission?: string
     permissionWhy?: string
     isTeammate?: boolean
+    isFork?: boolean
+    inheritedTokens?: number
+    isBackground?: boolean
+    readOnlyCalls?: number
     workflow?: WorkflowPlace
     compactions?: Compaction[]
     compactThreshold?: number
@@ -93,14 +97,25 @@ export function AgentDetailCard({
         </div>
         <ProgressBar percent={contextPercent} color={stateColor} />
         <CompactionLine compactions={agent.compactions} threshold={agent.compactThreshold} tokensMax={agent.tokensMax} />
+        {agent.isFork && (
+          <div className="mt-1 text-[9px] font-mono" style={{ color: COLORS.textDim }}>
+            {agent.inheritedTokens
+              ? `A fork: it started with ${formatTokens(agent.inheritedTokens)} of its parent’s context, and its cache`
+              : 'A fork: it inherits its parent’s context and cache'}
+          </div>
+        )}
       </div>
 
       {/* Stats row */}
       <div className="flex gap-3 mb-3 text-[10px] font-mono" style={{ color: COLORS.textDim }}>
-        <span>{agent.toolCalls} tools</span>
+        <span title={agent.readOnlyCalls ? 'Calls whose tool held the input read-only' : undefined}>
+          {agent.toolCalls} tools{agent.readOnlyCalls ? ` · ${agent.readOnlyCalls} reads` : ''}
+        </span>
         <span>{agent.timeAlive.toFixed(1)}s alive</span>
         <span className="capitalize" style={{ color: stateColor }}>{agent.state}</span>
         {agent.isTeammate && <span style={{ color: COLORS.textMuted }}>teammate</span>}
+        {agent.isFork && <span style={{ color: COLORS.textMuted }} title="Inherits its parent’s context and prompt cache">fork</span>}
+        {agent.isBackground && <span style={{ color: COLORS.textMuted }} title="Works on after the turn that started it ends">background</span>}
         {agent.workflow && (
           <span style={{ color: COLORS.textMuted }} title={`Agent #${agent.workflow.index} of workflow run ${agent.workflow.runId}`}>
             workflow

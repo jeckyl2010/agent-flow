@@ -70,6 +70,10 @@ let measuredWindow = 0
 let compactThreshold: number | undefined
 /** CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS: the context idle compaction needs, where it isn't 200K */
 let idleCompactMin: number | undefined
+/** Whether idle compaction can run: only in the terminal, and not where settings.json sets
+ *  `"idleCompaction": false` (the `/config` row since 2.1.302) */
+let isTerminal = true
+let isIdleCompactionOn = true
 /** Whether the main loop's turn is running, and when its last one ended (0 before any) */
 let isTurnRunning = false
 let lastTurnEnd = 0
@@ -86,7 +90,12 @@ const RESET_JITTER_MS = 5 * 60_000
 /** Whether the bridge raises notifications (the `notify` option) */
 let isNotifying = true
 /** tool_use_id → the `ask` verdict its permission check returned, until the call ends */
-const asks = new Map<string, { tool: string; agentId?: string; reason?: string; rule?: string; ceiling?: string }>()
+const asks = new Map<string, {
+  tool: string; agentId?: string; reason?: string; rule?: string; ceiling?: string
+  hook?: string; setting?: string; decider?: string
+}>()
+/** tool_use_ids of the calls whose tool held their input read-only (2.1.304+), until the call ends */
+const readOnly = new Set<string>()
 /**
  * How this session reaches Claude, as Claude Code's environment sets it up: Anthropic's API, or
  * Amazon Bedrock, Google Vertex AI or Microsoft Foundry, and the region. The footprint is figured
@@ -141,6 +150,9 @@ export const register: Register = (on, options) => {
     inference = await readInference($).catch(() => ({ platform: 'anthropic' as const }))
     const idleMin = Number(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS').catch(() => undefined))
     idleCompactMin = Number.isFinite(idleMin) && idleMin > 0 ? idleMin : undefined
+    // `-p`, the SDK and the hosts on it (VS Code, the desktop app) draw no terminal
+    isTerminal = e.surface === 'terminal'
+    await readIdleCompaction($)
     send($, { hook_event_name: 'SessionStart' })
     await $.command.register({ name: 'agent-flow', description: 'Shows where the Agent Flow bridge sends this session’s events.' })
     return next(e)
@@ -165,6 +177,7 @@ export const register: Register = (on, options) => {
     toolAgents.clear()
     agentTypes.clear()
     asks.clear()
+    readOnly.clear()
     teammates.clear()
     statuses.clear()
     descriptions.clear()
@@ -190,12 +203,14 @@ export const register: Register = (on, options) => {
 
     try {
       const ran = await next(e)
+      // Its permission check ran inside the call, so whether it was a read is known by its end
+      const ended = { ...call, ...(tool_use_id && readOnly.has(tool_use_id) ? { read_only: true } : {}) }
       if (ran.deny !== undefined) {
-        send($, { hook_event_name: 'PostToolUseFailure', ...call, error: ran.deny })
+        send($, { hook_event_name: 'PostToolUseFailure', ...ended, error: ran.deny })
       } else if (ran.isError) {
-        send($, { hook_event_name: 'PostToolUseFailure', ...call, error: ran.text ?? '' })
+        send($, { hook_event_name: 'PostToolUseFailure', ...ended, error: ran.text ?? '' })
       } else {
-        send($, { hook_event_name: 'PostToolUse', ...call, tool_response: ran.text ?? '' })
+        send($, { hook_event_name: 'PostToolUse', ...ended, tool_response: ran.text ?? '' })
       }
       return ran
     } catch (error) {
@@ -209,19 +224,24 @@ export const register: Register = (on, options) => {
       if (tool_use_id) {
         toolAgents.delete(tool_use_id)
         asks.delete(tool_use_id)
+        readOnly.delete(tool_use_id)
       }
     }
   })
 
   // An `ask` goes to the mode's decider (auto mode's classifier may allow it unseen), so the
   // request is sent only once a dialog shows; the verdict is kept for its reason, its rule and the
-  // organization's ceiling (since 2.1.290: `ask` when its administrators require an approval).
+  // organization's ceiling (since 2.1.290: `ask` when its administrators require an approval), the
+  // hook or setting that asked, and whether only a person can answer it (2.1.304: `decider`).
+  // Every check says whether the tool held the input read-only (2.1.304: `isReadOnly`)
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
+    if (e.tool_use_id && e.isReadOnly) readOnly.add(e.tool_use_id)
     if (verdict.decision === 'ask' && e.tool_use_id) {
       asks.set(e.tool_use_id, {
         tool: e.tool, agentId: e.agentId ?? toolAgents.get(e.tool_use_id),
         reason: verdict.reason, rule: verdict.rule, ceiling: verdict.ceiling,
+        hook: verdict.hook, setting: verdict.setting, decider: verdict.decider,
       })
     }
     return verdict
@@ -233,8 +253,26 @@ export const register: Register = (on, options) => {
     send($, {
       hook_event_name: 'PermissionRequest',
       tool_name: e.tool_name, tool_input: e.tool_input, ...agentFields(e.agent_id),
-      ...(asked ? { tool_use_id: asked[0], reason: asked[1].reason, rule: asked[1].rule, ceiling: asked[1].ceiling } : {}),
+      ...(asked ? {
+        tool_use_id: asked[0], reason: asked[1].reason, rule: asked[1].rule, ceiling: asked[1].ceiling,
+        hook: asked[1].hook, setting: asked[1].setting, decider: asked[1].decider,
+      } : {}),
     })
+    return next(e)
+  })
+
+  // A resumed or forked conversation: how long it sat, and what re-caching its context costs once
+  // the prompt cache has lapsed, as Claude Code estimates it. Only the SessionStart hook says so
+  on('classic.SessionStart', async ($, e, next) => {
+    if ((e.source === 'resume' || e.source === 'fork') && e.seconds_since_last_response !== undefined) {
+      send($, {
+        hook_event_name: 'SessionResume', session_id: e.session_id, source: e.source,
+        seconds_since_last_response: e.seconds_since_last_response,
+        ...(e.context_tokens !== undefined ? { context_tokens: e.context_tokens } : {}),
+        ...(e.prompt_cache_likely_expired !== undefined ? { prompt_cache_likely_expired: e.prompt_cache_likely_expired } : {}),
+        ...(e.estimated_cache_write_usd !== undefined ? { estimated_cache_write_usd: e.estimated_cache_write_usd } : {}),
+      })
+    }
     return next(e)
   })
 
@@ -259,6 +297,10 @@ export const register: Register = (on, options) => {
         ...(e.workflow ? { workflow_run_id: e.workflow.runId, workflow_agent_index: e.workflow.agentIndex } : {}),
         ...(compactWindow !== undefined ? { auto_compact_window: compactWindow } : {}),
         ...(e.resume ? { resumed: true } : {}),
+        // A fork inherits its parent's context and prompt cache; a background agent works on
+        // after the turn that started it ends (the default since 2.1.302 in VS Code and the app)
+        ...(e.fork ? { fork: true } : {}),
+        ...(e.background ? { background: true } : {}),
       })
       watchStatuses($)
     }
@@ -312,6 +354,8 @@ export const register: Register = (on, options) => {
       const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => undefined)
       compactThreshold = usage?.context.breakdown?.autoCompactThreshold
     }
+    // The `/config` row writes settings.json mid-session: read again after each turn
+    if (changed.includes('context')) await readIdleCompaction($)
     if (changed.includes('context') || changed.includes('rateLimits')) {
       send($, {
         hook_event_name: 'SessionMeasure',
@@ -319,6 +363,7 @@ export const register: Register = (on, options) => {
         ...(context.tokens !== undefined ? { context_tokens: context.tokens } : {}),
         ...(compactThreshold !== undefined ? { compact_threshold: compactThreshold } : {}),
         ...(idleCompactMin !== undefined ? { idle_compact_min_tokens: idleCompactMin } : {}),
+        ...(isIdleCompactionOn ? {} : { idle_compaction: false }),
         rate_limits: rateLimits,
       })
     }
@@ -345,6 +390,8 @@ export const register: Register = (on, options) => {
             messages_before: e.messages.length, messages_after: done.messages.length,
             ...(done.tokensBefore !== undefined ? { tokens_before: done.tokensBefore } : {}),
             ...(done.tokensAfter !== undefined ? { tokens_after: done.tokensAfter } : {}),
+            // What the summary itself cost, where core made one
+            ...(done.usage ? { usage: done.usage } : {}),
             duration_ms: Date.now() - startedAt,
           })
       return done
@@ -421,6 +468,12 @@ export const register: Register = (on, options) => {
       finish() // an interrupted step still shows what it said
     }
   })
+}
+
+/** Whether idle compaction can run here: in the terminal, with settings.json not turning it off */
+async function readIdleCompaction($: EngineInterface): Promise<void> {
+  const setting = await $.settings.read({ key: 'idleCompaction' }).catch(() => undefined)
+  isIdleCompactionOn = isTerminal && setting !== false
 }
 
 /** A tool the API ran inside a request (since 2.1.290), as a call that started and ended. Both are

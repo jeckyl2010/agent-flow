@@ -66,7 +66,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 9.7, type: 'message', payload: { agent: 'orchestrator', content: 'Dispatching agents for parallel research and schema analysis...' } },
   { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'explore-agent', task: 'Deep-dive into payment flow and DB schema' } },
   { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'research-agent', task: 'Research Stripe & PayPal API patterns' } },
-  { time: 10.2, type: 'agent_spawn', payload: { name: 'explore-agent', parent: 'orchestrator', task: 'Analyze payment flow and database schema' } },
+  { time: 10.2, type: 'agent_spawn', payload: { name: 'explore-agent', parent: 'orchestrator', task: 'Analyze payment flow and database schema', model: 'claude-opus-5-5', fork: true } },
   { time: 10.2, type: 'agent_spawn', payload: { name: 'research-agent', parent: 'orchestrator', task: 'Research Stripe & PayPal integration patterns', model: 'claude-haiku-4-5', autoCompactWindow: 150_000 } },
   { time: 10.5, type: 'context_update', payload: { agent: 'explore-agent', tokens: 1800, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
   { time: 10.5, type: 'context_update', payload: { agent: 'research-agent', tokens: 1800, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
@@ -225,13 +225,15 @@ const step = (time: number, agent: string, stopReason: string, input: number, ou
 })
 
 const MODEL_STEPS: SimulationEvent[] = [
-  step(3.9, 'orchestrator', 'tool_use', 2200, 180, 0, 2900),
+  // The first request after the resume writes the whole context to the cache again
+  step(3.9, 'orchestrator', 'tool_use', 800, 180, 0, 19_100),
   step(5.4, 'orchestrator', 'tool_use', 300, 120, 4600, 900),
   step(7.9, 'orchestrator', 'tool_use', 250, 1400, 9800, 1600),
   step(10.0, 'orchestrator', 'tool_use', 200, 600, 11800, 700),
-  step(11.5, 'explore-agent', 'tool_use', 1800, 220, 0, 1500, 'low'),
+  // A fork: its first request reads its parent's context from the cache
+  step(11.5, 'explore-agent', 'tool_use', 120, 220, 11_800, 1500, 'low', 'claude-opus-5-5'),
   step(12.0, 'research-agent', 'tool_use', 1800, 260, 0, 1500, 'high', 'claude-haiku-4-5'),
-  step(13.6, 'explore-agent', 'end_turn', 120, 900, 5200, 900, 'low'),
+  step(13.6, 'explore-agent', 'end_turn', 120, 900, 13_300, 900, 'low', 'claude-opus-5-5'),
   step(17.0, 'research-agent', 'tool_use', 150, 300, 8800, 1200, 'high', 'claude-haiku-4-5'),
   step(21.2, 'research-agent', 'end_turn', 140, 1700, 10500, 600, 'high', 'claude-haiku-4-5'),
   step(22.5, 'orchestrator', 'tool_use', 300, 2600, 21000, 3200, 'xhigh'),
@@ -246,7 +248,10 @@ const MODEL_STEPS: SimulationEvent[] = [
 // The measured window and rate limits, compactions (a wormhole each, and the log's history), the
 // advisor, agents messaging each other, a permission that says why it asks, (2.1.292) a workflow
 // script's run of agents, (2.1.299) a finished subagent resumed, and the countdown to idle
-// compaction, here at the 50K that CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS sets.
+// compaction, here at the 50K that CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS sets. On 2.1.304: a resumed
+// conversation and what re-caching it cost, a fork, an agent at work in the background after the
+// turn ends, reads the tools held read-only, a hook's ask only you can answer, and what each
+// compaction's summary cost.
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
 const minutesAhead = (m: number) => new Date(Date.now() + m * 60_000).toISOString()
 
@@ -277,6 +282,14 @@ const BRIDGE_EVENTS: SimulationEvent[] = [
       { kind: 'seven_day', percentUsed: 61, resetsAt: minutesAhead(3 * 24 * 60) },
     ],
   } },
+  // This conversation was resumed after three hours: its cache had lapsed, so its first request
+  // writes the context to it again, as Claude Code estimated
+  { time: 0.5, type: 'session_resume', payload: { agent: 'orchestrator', source: 'resume', idleSeconds: 3 * 3600 + 12 * 60, contextTokens: 19_900, cacheExpired: true, estimatedUsd: 0.1 } },
+
+  // The fork's measured context: its parent's, which it inherited
+  { time: 11.5, type: 'context_update', payload: { agent: 'explore-agent', tokens: 13_640, isMeasured: true } },
+  { time: 13.6, type: 'context_update', payload: { agent: 'explore-agent', tokens: 15_220, isMeasured: true } },
+
   // The session's earlier compactions, from before Agent Flow watched it
   { time: 0.5, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'auto', tokensBefore: 836_412, tokensAfter: 18_904, durationMs: 31_200, at: minutesAgo(190), isHistory: true } },
   { time: 0.5, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'manual', tokensBefore: 412_377, tokensAfter: 21_050, durationMs: 24_800, at: minutesAgo(75), isHistory: true } },
@@ -293,7 +306,8 @@ const BRIDGE_EVENTS: SimulationEvent[] = [
   // The Stripe docs fill the research agent's window: it compacts, and jumps
   { time: 18.2, type: 'context_update', payload: { agent: 'research-agent', tokens: 168_400, isMeasured: true } },
   { time: 18.3, type: 'context_compaction', payload: { agent: 'research-agent', phase: 'start', trigger: 'auto', at: minutesAgo(0) } },
-  { time: 19.9, type: 'context_compaction', payload: { agent: 'research-agent', phase: 'end', trigger: 'auto', tokensBefore: 168_400, tokensAfter: 9_800, durationMs: 1_600, at: minutesAgo(0) } },
+  { time: 19.9, type: 'context_compaction', payload: { agent: 'research-agent', phase: 'end', trigger: 'auto', tokensBefore: 168_400, tokensAfter: 9_800, durationMs: 1_600, at: minutesAgo(0),
+    usage: { input_tokens: 1_400, output_tokens: 1_900, cache_read_input_tokens: 166_000, cache_creation_input_tokens: 0 }, model: 'claude-haiku-4-5' } },
 
   // A workflow script reviews each adapter, one Haiku 5.5 agent per file, while the tests are written
   { time: 33.4, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Workflow', args: 'review-adapters', inputData: { name: 'review-adapters' } } },
@@ -312,19 +326,47 @@ const BRIDGE_EVENTS: SimulationEvent[] = [
   { time: 46.3, type: 'subagent_return', payload: { child: 'research-agent', parent: 'orchestrator', summary: 'Send a PayPal-Request-Id header with each capture: a retry then returns the first result' } },
   { time: 46.3, type: 'agent_complete', payload: { name: 'research-agent' } },
 
-  // The schema needs the new providers: a settings rule asks before any migration runs
-  { time: 56.8, type: 'permission_requested', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx prisma migrate dev --name payment_providers', message: 'Bash: npx prisma migrate dev --name payment_providers', title: 'Permission needed', why: 'Rule Bash(npx prisma migrate:*)' } },
+  // The schema needs the new providers: a PreToolUse hook asks before any migration runs, and only
+  // you can answer it, not auto mode's classifier
+  { time: 56.8, type: 'permission_requested', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx prisma migrate dev --name payment_providers', message: 'Bash: npx prisma migrate dev --name payment_providers', title: 'Permission needed', why: 'A PreToolUse hook asks: migrations change the shared database · only you can approve it' } },
   { time: 58.6, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', args: 'npx prisma migrate dev --name payment_providers', inputData: { command: 'npx prisma migrate dev --name payment_providers' } } },
   { time: 59.3, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Bash', result: 'Applied migration 20261006_payment_providers', tokenCost: 150 } },
+
+  // A docs agent writes the changelog in the background: it works on after the turn ends, and the
+  // time horizon counts that time as the subagent's, not as waiting for you. Its end wakes the main
+  // agent, which says so and is idle again
+  { time: 60.3, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Agent', args: 'Write the changelog entry', inputData: { description: 'Write the changelog entry', run_in_background: true } } },
+  { time: 60.4, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'docs-agent', task: 'Write the changelog entry' } },
+  { time: 60.4, type: 'agent_spawn', payload: { name: 'docs-agent', parent: 'orchestrator', task: 'Write the changelog entry', model: 'claude-haiku-5-5', background: true } },
+  { time: 60.6, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Agent', result: 'Async agent launched successfully', tokenCost: 40 } },
+  step(61.2, 'docs-agent', 'tool_use', 2600, 160, 0, 2200, 'low', 'claude-haiku-5-5'),
+  { time: 61.6, type: 'tool_call_start', payload: { agent: 'docs-agent', tool: 'Read', args: 'CHANGELOG.md', inputData: { file_path: 'CHANGELOG.md' } } },
+  { time: 61.9, type: 'tool_call_end', payload: { agent: 'docs-agent', tool: 'Read', result: 'CHANGELOG.md: 214 lines', tokenCost: 1400 } },
+  step(64.4, 'docs-agent', 'tool_use', 300, 900, 4800, 1500, 'low', 'claude-haiku-5-5'),
+  { time: 64.8, type: 'tool_call_start', payload: { agent: 'docs-agent', tool: 'Edit', args: 'CHANGELOG.md', inputData: { file_path: 'CHANGELOG.md', old_string: '## Unreleased', new_string: '## Unreleased\n\n- Payments through Stripe and PayPal, with webhooks' } } },
+  { time: 65.3, type: 'tool_call_end', payload: { agent: 'docs-agent', tool: 'Edit', result: 'CHANGELOG.md updated', tokenCost: 120 } },
+  step(67.6, 'docs-agent', 'end_turn', 200, 380, 6400, 200, 'low', 'claude-haiku-5-5'),
+  { time: 67.8, type: 'subagent_return', payload: { child: 'docs-agent', parent: 'orchestrator', summary: 'Added the Stripe and PayPal entry under Unreleased' } },
+  { time: 67.8, type: 'agent_complete', payload: { name: 'docs-agent' } },
+  step(68.6, 'orchestrator', 'end_turn', 200, 140, 48_500, 300, 'xhigh'),
+  { time: 68.7, type: 'message', payload: { agent: 'orchestrator', content: 'The changelog has its entry too.' } },
+  { time: 68.9, type: 'agent_idle', payload: { name: 'orchestrator' } },
 
   // Left alone, the conversation would compact itself before its prompt cache lapses: the wormhole
   // log counts down to it. You compact it by hand first: the finale
   { time: 71.0, type: 'message', payload: { agent: 'orchestrator', role: 'user', content: '/compact keep the adapter design and the open follow-ups' } },
   { time: 71.3, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'start', trigger: 'manual', at: minutesAgo(0) } },
-  { time: 75.2, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'manual', tokensBefore: 70_100, tokensAfter: 6_100, durationMs: 3_900, at: minutesAgo(0) } },
+  { time: 75.2, type: 'context_compaction', payload: { agent: 'orchestrator', phase: 'end', trigger: 'manual', tokensBefore: 70_100, tokensAfter: 6_100, durationMs: 3_900, at: minutesAgo(0),
+    usage: { input_tokens: 2_100, output_tokens: 1_850, cache_read_input_tokens: 68_000, cache_creation_input_tokens: 0 }, model: 'claude-opus-5-5' } },
 ]
 
-const WITH_MODEL_STEPS = [...NORMAL_MOCK_SCENARIO, ...MODEL_STEPS, ...BRIDGE_EVENTS].sort((a, b) => a.time - b.time)
+/** The tools that only read: their calls' ends say so, as the bridge mod reports a call whose tool
+ *  held its input read-only (2.1.304+) */
+const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'])
+const markReads = (e: SimulationEvent): SimulationEvent =>
+  e.type === 'tool_call_end' && READ_ONLY_TOOLS.has(String(e.payload.tool)) ? { ...e, payload: { ...e.payload, readOnly: true } } : e
+
+const WITH_MODEL_STEPS = [...NORMAL_MOCK_SCENARIO, ...MODEL_STEPS, ...BRIDGE_EVENTS].map(markReads).sort((a, b) => a.time - b.time)
 
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
@@ -343,7 +385,8 @@ export interface TourStop {
 /**
  * The demo's tour of the views, in step with the scenario: the canvas while agents fan out, the
  * time horizon as they land, the canvas as the research agent is resumed, the timeline through the
- * tests (its resumed mark), the wormhole log counting down to idle compaction once the turn ends,
+ * tests (its resumed mark), the canvas as the docs agent works in the background past the turn's end,
+ * the wormhole log counting down to idle compaction once the main agent is idle again,
  * the canvas for the compaction's wormhole, then the horizon with its mark on the disk and the
  * wormhole log to end. It stops for good at the viewer's first click, scroll or key.
  */
@@ -353,7 +396,7 @@ export const DEMO_TOUR: TourStop[] = stressLevel ? [] : [
   { at: 31 },
   { at: 45.5, timeline: true },
   { at: 53 },
-  { at: 65.5, wormholeLog: true },
+  { at: 69.2, wormholeLog: true },
   { at: 70.6 },
   { at: 78.8, horizon: true },
   { at: 82.5, wormholeLog: true },

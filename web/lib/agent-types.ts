@@ -42,6 +42,14 @@ export interface Agent {
   isTeammate?: boolean
   /** An agent a workflow script started: its run, and its place among the run's agents from 1 */
   workflow?: WorkflowPlace
+  /** A fork of its parent: it inherits the parent's context and prompt cache */
+  isFork?: boolean
+  /** A fork: the context it started with, nearly all of it its parent's */
+  inheritedTokens?: number
+  /** Run in the background: it works on after the turn that started it ends */
+  isBackground?: boolean
+  /** Its tool calls whose tool held the input read-only, as the bridge mod measured it (2.1.304+) */
+  readOnlyCalls?: number
   /** Which agent runtime produced this agent — used to pick the brand logo.
    *  Optional for forward compat with events that don't carry it (defaults to 'claude'). */
   runtime?: 'claude' | 'codex'
@@ -75,6 +83,11 @@ export interface Agent {
   /** The main agent: the context idle compaction needs, where CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS
    *  changed it from 200K, as the bridge mod read it */
   idleCompactMin?: number
+  /** The main agent: false where idle compaction won't run (outside the terminal, or turned off in
+   *  settings.json) */
+  idleCompaction?: boolean
+  /** The main agent: the earlier conversation it resumed, where Claude Code said */
+  resume?: SessionResume
   /** The main agent: the account's rate-limit windows, as the latest response reported them */
   rateLimits?: RateLimit[]
   /** Messages it sent other agents lately (SendMessage), newest last */
@@ -103,6 +116,32 @@ export interface Compaction {
   isHistory?: boolean
   /** Why it was skipped */
   reason?: string
+  /** What the summary itself cost, as the API measured it (the bridge mod), and the model it ran on */
+  usage?: StepUsageLike
+  model?: string
+}
+
+/** A model request's usage, as a compaction's summary reports it */
+export interface StepUsageLike {
+  input_tokens: number
+  output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+}
+
+/** A conversation resumed (or forked) from an earlier one, as Claude Code's SessionStart hook said */
+export interface SessionResume {
+  /** Simulation time it was resumed */
+  time: number
+  source: 'resume' | 'fork'
+  /** How long it sat, s, since the earlier conversation's last response */
+  idleSeconds: number
+  /** The context its first request sends again */
+  contextTokens?: number
+  /** The prompt cache lapsed meanwhile: the first request writes the context to it again */
+  cacheExpired?: boolean
+  /** Claude Code's estimate of that write, $ */
+  estimatedUsd?: number
 }
 
 export interface RateLimit {
@@ -207,6 +246,8 @@ export interface ToolCallNode {
   tokenCost?: number    // how many tokens this result consumed
   inputData?: Record<string, unknown>  // rich tool input (diffs, todos, commands)
   errorMessage?: string // error description when state === 'error'
+  /** The tool held this input read-only (the bridge mod, 2.1.304+); absent: it couldn't say, or wrote */
+  readOnly?: boolean
   x: number
   y: number
   startTime: number
@@ -315,6 +356,7 @@ export interface SimulationEvent {
     | 'permission_requested'
     | 'context_compaction'
     | 'session_measure'
+    | 'session_resume'
     | 'agent_message'
     | 'turn_failed'
   payload: Record<string, unknown>
@@ -428,6 +470,12 @@ export const POPUP = {
   discovery: { width: 300, estimatedHeight: 160 },
   controlBarMaxWidth: 680,
 } as const
+
+/** Whether a subagent finishes with its parent: a main turn's end isn't its background agents',
+ *  which work on and say when they end. The session's end is everyone's */
+export function endsWithParent(child: Pick<Agent, 'isBackground'>, isSessionEnd: boolean): boolean {
+  return isSessionEnd || !child.isBackground
+}
 
 // Default empty context breakdown
 export function emptyContextBreakdown(): ContextBreakdown {

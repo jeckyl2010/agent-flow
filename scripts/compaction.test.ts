@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import type { SimulationEvent } from '../web/lib/agent-types'
 import { WORMHOLE } from '../web/lib/canvas-constants'
 import type { Agent } from '../web/lib/agent-types'
-import { IDLE_COMPACT, compactionDrop, compactionLabel, foldCompaction, idleCompactionIn, triggerLabel, wormholeFrame } from '../web/lib/compaction'
+import { IDLE_COMPACT, compactionCost, compactionDrop, compactionLabel, foldCompaction, idleCompactionIn, recacheCost, triggerLabel, wormholeFrame } from '../web/lib/compaction'
 import { timeHorizon, predictConsumption } from '../web/lib/time-horizon'
 
 test('a compaction is labelled by what it did', () => {
@@ -86,4 +86,31 @@ test('a compaction is named by what started it', () => {
   assert.equal(triggerLabel('idle'), 'idle, before the cache lapsed')
   assert.equal(triggerLabel('auto'), 'auto')
   assert.equal(triggerLabel(undefined), 'compacted')
+})
+
+test('no idle compaction is forecast where it won’t run', () => {
+  const main = { id: 'orchestrator', state: 'thinking', tokensUsed: 240_000 } as Agent
+  const events: SimulationEvent[] = [
+    { time: 100, type: 'message', payload: { agent: 'orchestrator' } },
+    { time: 400, type: 'agent_idle', payload: { name: 'orchestrator' } },
+  ]
+  assert.ok(idleCompactionIn({ ...main, idleCompaction: true }, events, 430)! > 0)
+  assert.equal(idleCompactionIn({ ...main, idleCompaction: false }, events, 430), undefined)
+})
+
+test('a summary is priced from its usage, and an idle compaction against re-caching what it folded', () => {
+  const usage = { input_tokens: 2_100, output_tokens: 1_850, cache_read_input_tokens: 68_000, cache_creation_input_tokens: 0 }
+  // Opus 5.5: $4 in, $20 out, $0.20 cache reads, per million
+  assert.equal(compactionCost({ usage }, 'claude-opus-5-5')!.toFixed(4), '0.0590')
+  assert.equal(compactionCost({}, 'claude-opus-5-5'), undefined)
+  // 233,918 tokens written to the one-hour cache at twice the input price
+  assert.equal(recacheCost({ trigger: 'idle', tokensBefore: 233_918 }, 'claude-opus-5-5')!.toFixed(3), '1.871')
+  assert.equal(recacheCost({ trigger: 'auto', tokensBefore: 233_918 }, 'claude-opus-5-5'), undefined)
+})
+
+test('a compaction’s end keeps its summary’s usage, where it has every count', () => {
+  const usage = { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 }
+  const [done] = foldCompaction([], { phase: 'end', usage, model: 'claude-opus-5-5' }, 5)!
+  assert.deepEqual([done!.usage, done!.model], [usage, 'claude-opus-5-5'])
+  assert.equal(foldCompaction([], { phase: 'end', usage: { input_tokens: 1 } }, 5)![0]!.usage, undefined)
 })

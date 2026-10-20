@@ -116,6 +116,8 @@ export function handleContextUpdate(
       isTokensMeasured: agent.isTokensMeasured || isMeasured,
       tokensMax: tokensMaxOverride ?? agent.tokensMax,
       contextBreakdown: breakdown || agent.contextBreakdown,
+      // A fork's first measured context is the one it inherited, nearly all of it
+      ...(agent.isFork && agent.inheritedTokens === undefined && isMeasured && tokens > 0 ? { inheritedTokens: tokens } : {}),
       state: agent.state === 'complete' ? 'complete' : 'thinking'
     })
   }

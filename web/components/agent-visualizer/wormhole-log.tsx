@@ -4,8 +4,8 @@ import { useMemo } from 'react'
 import type { Agent, Compaction, RateLimit, SimulationEvent } from '@/lib/agent-types'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { formatCount } from '@/lib/utils'
-import { compactionDrop, compactionLabel, foldCompaction, idleCompactionIn, triggerLabel } from '@/lib/compaction'
+import { formatCount, formatUsd } from '@/lib/utils'
+import { compactionCost, compactionDrop, compactionLabel, foldCompaction, idleCompactionIn, recacheCost, triggerLabel } from '@/lib/compaction'
 import { timeHorizon, predictConsumption, formatDuration } from '@/lib/time-horizon'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, stopPropagationHandlers } from './shared-ui'
@@ -24,6 +24,8 @@ interface WormholeLogProps {
 interface Jump extends Compaction {
   agent: string
   isMain: boolean
+  /** The agent's model, which its summary ran on and is priced at */
+  model?: string
 }
 
 const RATE_LIMIT_NAMES: Record<string, string> = { five_hour: '5-hour window', seven_day: '7-day window', spend_limit: 'Spend limit' }
@@ -40,7 +42,9 @@ function jumpsFrom(events: readonly SimulationEvent[], agents: Map<string, Agent
   const all: Jump[] = []
   for (const [key, list] of byAgent) {
     const agent = agents.get(key)
-    for (const c of list) all.push({ ...c, agent: agent?.name ?? key, isMain: agent?.isMain ?? false })
+    // Its summary's model where the event said, else the agent's: a subagent's node may be gone
+    const model = agent?.model ?? agent?.modelTag?.model
+    for (const c of list) all.push({ ...c, agent: agent?.name ?? key, isMain: agent?.isMain ?? false, model: c.model ?? model })
   }
   // Newest first: by when it happened where known, else by the session's clock
   return all.sort((x, y) => (y.at && x.at && y.at !== x.at ? y.at.localeCompare(x.at) : (y.endTime ?? y.startTime) - (x.endTime ?? x.startTime)))
@@ -105,6 +109,7 @@ export function WormholeLog({ visible, agents, events, currentTime, onClose }: W
   const done = jumps.filter(j => j.phase === 'done')
   const running = jumps.find(j => j.phase === 'running')
   const foldedAway = done.reduce((sum, j) => sum + Math.max(0, (j.tokensBefore ?? 0) - (j.tokensAfter ?? 0)), 0)
+  const summaries = done.map(j => compactionCost(j, j.model)).filter((c): c is number => c !== undefined)
 
   return (
     <div className="absolute" {...stopPropagationHandlers}
@@ -127,6 +132,7 @@ export function WormholeLog({ visible, agents, events, currentTime, onClose }: W
             <>
               <div className="text-[10px] mb-2" style={{ color: COLORS.textDim }}>
                 {formatCount(foldedAway)} tokens folded away in {done.length} jump{done.length === 1 ? '' : 's'}
+                {summaries.length > 0 && ` · ${formatUsd(summaries.reduce((a, b) => a + b, 0))} on summaries`}
               </div>
               <div className="flex flex-col gap-1.5 overflow-y-auto pr-1" style={{ maxHeight: 220 }}>
                 {done.map((j, i) => <JumpRow key={`${j.agent}-${j.at ?? j.startTime}-${i}`} jump={j} />)}
@@ -236,6 +242,8 @@ function Limits({ limits }: { limits: RateLimit[] }) {
 
 function JumpRow({ jump }: { jump: Jump }) {
   const drop = compactionDrop(jump)
+  const cost = compactionCost(jump, jump.model)
+  const spared = recacheCost(jump, jump.model)
   return (
     <div className="text-[10px] px-2 py-1 rounded" style={{
       background: COLORS.wormholeActiveBg,
@@ -251,8 +259,17 @@ function JumpRow({ jump }: { jump: Jump }) {
           {!jump.isMain && ` · ${jump.agent}`}
           {jump.isHistory && ' · before watching'}
         </span>
-        {jump.durationMs !== undefined && <span>{formatDuration(jump.durationMs / 1000)}</span>}
+        <span>
+          {cost !== undefined && <span title="What the summary cost, as the API measured it">{formatUsd(cost)}</span>}
+          {cost !== undefined && jump.durationMs !== undefined && ' · '}
+          {jump.durationMs !== undefined && formatDuration(jump.durationMs / 1000)}
+        </span>
       </div>
+      {spared !== undefined && (
+        <div className="text-[9px] mt-0.5" style={{ color: COLORS.textDim }}>
+          Instead of re-caching {formatCount(jump.tokensBefore ?? 0)} with your next message: ≈ {formatUsd(spared)}
+        </div>
+      )}
     </div>
   )
 }

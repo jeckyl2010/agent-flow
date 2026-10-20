@@ -1,14 +1,27 @@
 /**
  * Context compactions, as the canvas draws them (a wormhole) and the wormhole log lists them.
  */
-import type { Agent, Compaction, SimulationEvent } from './agent-types'
+import type { Agent, Compaction, SimulationEvent, StepUsageLike } from './agent-types'
 import { WORMHOLE } from './canvas-constants'
 import { formatCount } from './utils'
+import { cachedPromptCost, stepCost } from './model-pricing'
 
 /** `967k → 13k` */
 export function compactionLabel(c: Pick<Compaction, 'tokensBefore' | 'tokensAfter'>): string {
   if (c.tokensBefore === undefined || c.tokensAfter === undefined) return 'compacted'
   return `${formatCount(c.tokensBefore)} → ${formatCount(c.tokensAfter)}`
+}
+
+/** What a compaction's summary cost, $, where the bridge mod measured it */
+export function compactionCost(c: Pick<Compaction, 'usage'>, model?: string): number | undefined {
+  return c.usage ? stepCost(c.usage, model) : undefined
+}
+
+/** What an idle compaction spared: the next message writing the whole context it folded to the
+ *  one-hour cache again, $. Undefined for any other compaction, or without its count */
+export function recacheCost(c: Pick<Compaction, 'trigger' | 'tokensBefore'>, model?: string): number | undefined {
+  if (c.trigger !== 'idle' || !c.tokensBefore) return undefined
+  return cachedPromptCost(c.tokensBefore, 3600, model).cold
 }
 
 /** The share of the context a compaction let go, 0 to 1; undefined without both counts */
@@ -44,8 +57,10 @@ const ACTIVITY = new Set([
 
 /** Seconds until idle compaction would fold the main conversation if it stays idle, or undefined
  *  where it won't: its turn hasn't ended, or the context is under the size it needs. Claude Code
- *  does this in the terminal only, and not where settings.json sets `"idleCompaction": false` */
+ *  does this in the terminal only, and not where settings.json sets `"idleCompaction": false`: the
+ *  bridge mod and the transcript's `entrypoint` say so (`idleCompaction`) */
 export function idleCompactionIn(main: Agent, events: readonly SimulationEvent[], currentTime: number): number | undefined {
+  if (main.idleCompaction === false) return undefined
   if (main.tokensUsed < (main.idleCompactMin ?? IDLE_COMPACT.minTokens)) return undefined
   // The main loop's turn ended (its Stop, or its transcript gone quiet), and nothing happened since
   const at = events.findLastIndex(e => ACTIVITY.has(e.type))
@@ -80,6 +95,15 @@ export function wormholeFrame(c: Compaction, simTime: number): WormholeFrame | u
 const optNumber = (v: unknown) => (typeof v === 'number' ? v : undefined)
 const optString = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 
+/** A summary's usage, where it has every count */
+function asUsage(v: unknown): StepUsageLike | undefined {
+  if (!v || typeof v !== 'object') return undefined
+  const u = v as Record<string, unknown>
+  const keys = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'] as const
+  if (!keys.every(k => typeof u[k] === 'number')) return undefined
+  return Object.fromEntries(keys.map(k => [k, u[k]])) as unknown as StepUsageLike
+}
+
 /**
  * A `context_compaction` event folded into an agent's compactions: a start opens one; an end, or a
  * skip, closes the one running; an end with none running (a transcript records only its end) is
@@ -94,6 +118,8 @@ export function foldCompaction(list: readonly Compaction[], payload: Record<stri
     tokensAfter: optNumber(payload.tokensAfter),
     durationMs: optNumber(payload.durationMs),
     reason: optString(payload.reason),
+    usage: asUsage(payload.usage),
+    model: optString(payload.model),
   }
   const known = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined))
 

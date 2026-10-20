@@ -9,6 +9,7 @@ export interface ToolDataSnapshot {
   result?: string
   tokenCost?: number
   inputData?: Record<string, unknown>
+  readOnly?: boolean
 }
 
 export interface DiscoveryDataSnapshot {
@@ -100,7 +101,7 @@ export function useSelectionState(deps: {
         // Snapshot data so popup persists after tool card fades
         setSelectedToolData({
           id: tool.id, toolName: tool.toolName, state: tool.state, args: tool.args,
-          result: tool.result, tokenCost: tool.tokenCost, inputData: tool.inputData,
+          result: tool.result, tokenCost: tool.tokenCost, inputData: tool.inputData, readOnly: tool.readOnly,
         })
       }
     } else {

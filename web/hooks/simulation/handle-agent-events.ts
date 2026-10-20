@@ -2,6 +2,7 @@ import {
   type Agent,
   type TimelineEntry,
   emptyContextBreakdown,
+  endsWithParent,
 } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { AGENT_SPAWN_DISTANCE } from '@/lib/canvas-constants'
@@ -23,6 +24,8 @@ export function handleAgentSpawn(
   const model = typeof payload.model === 'string' ? payload.model : undefined
   const runtime = payload.runtime === 'codex' ? 'codex' as const : undefined
   const isTeammate = payload.isTeammate === true ? true : undefined
+  const isFork = payload.fork === true ? true : undefined
+  const isBackground = payload.background === true ? true : undefined
   const workflow = asWorkflow(payload.workflow)
   // Where its agent file says it compacts (autoCompactWindow, 2.1.296+), as the bridge mod read it
   const compactThreshold = typeof payload.autoCompactWindow === 'number' && payload.autoCompactWindow > 0
@@ -43,6 +46,7 @@ export function handleAgentSpawn(
       // A workflow run started again reuses its agents' names: they belong to the new run now
       ...(workflow ? { workflow } : {}),
       ...(compactThreshold ? { compactThreshold } : {}),
+      ...(isBackground ? { isBackground } : {}),
     })
     return
   }
@@ -98,6 +102,8 @@ export function handleAgentSpawn(
     x, y, vx: 0, vy: 0,
     pinned: false, isMain,
     ...(isTeammate ? { isTeammate } : {}),
+    ...(isFork ? { isFork } : {}),
+    ...(isBackground ? { isBackground } : {}),
     ...(workflow ? { workflow } : {}),
     ...(compactThreshold ? { compactThreshold } : {}),
     ...(runtime ? { runtime } : {}),
@@ -148,9 +154,10 @@ export function handleAgentComplete(
       entry.endTime = currentTime
     }
 
+    const isSessionEnd = payload.sessionEnd === true
     const agentsToComplete = [name]
     for (const [childId, childAgent] of state.agents) {
-      if (childAgent.parentId === name && childAgent.state !== 'complete') {
+      if (childAgent.parentId === name && childAgent.state !== 'complete' && endsWithParent(childAgent, isSessionEnd)) {
         state.agents.set(childId, { ...childAgent, state: 'complete', completeTime: currentTime })
         agentsToComplete.push(childId)
         const childEntry = state.timelineEntries.get(childId)
@@ -221,8 +228,11 @@ export function handleAgentStatus(
   state: MutableEventState,
 ): void {
   const name = asString(payload.name)
-  const agent = state.agents.get(name)
-  if (!agent || agent.state === 'complete' || agent.state === 'error') return
+  const found = state.agents.get(name)
+  if (!found || found.state === 'complete' || found.state === 'error') return
+  // Its launch answered at once: it was sent to the background, and works on
+  const agent = payload.background === true && !found.isBackground ? { ...found, isBackground: true } : found
+  if (agent !== found) state.agents.set(name, agent)
   const status = asString(payload.status)
   if (status === 'idle' || status === 'waiting') {
     if (agent.state === 'waiting_permission') return // the dialog is the more specific
