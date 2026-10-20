@@ -118,7 +118,8 @@ export function handleContextUpdate(
       contextBreakdown: breakdown || agent.contextBreakdown,
       // A fork's first measured context is the one it inherited, nearly all of it
       ...(agent.isFork && agent.inheritedTokens === undefined && isMeasured && tokens > 0 ? { inheritedTokens: tokens } : {}),
-      state: agent.state === 'complete' ? 'complete' : 'thinking'
+      // A new count doesn't end a wait for your permission: the dialog's answer does
+      state: agent.state === 'complete' || agent.state === 'waiting_permission' ? agent.state : 'thinking'
     })
   }
 }
