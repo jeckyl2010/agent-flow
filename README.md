@@ -74,8 +74,11 @@ and transcripts only let Agent Flow guess. With it you get:
 - the context window, fill and usage as the API measured them, and your rate limits
 - answers and thinking as they stream
 - compactions as they start and end, and a subagent's own compaction point
-- agent teams, workflow runs, resumed subagents, messages between agents, and the advisor's calls
-- why a permission asks, and why a turn was refused
+- agent teams, workflow runs, resumed subagents, forks, background agents, messages between
+  agents, and the advisor's calls
+- why a permission asks (the rule, hook or setting, and whether only you can approve it), which
+  calls were read-only, and why a turn was refused
+- what each compaction's summary cost, and what a resumed conversation's cache cost to rebuild
 - a notification for a refused turn, a failed subagent, or a rate limit 90% used (turn it off
   with the mod's **Notifications** option in `/config`)
 

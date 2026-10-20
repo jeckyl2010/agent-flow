@@ -370,3 +370,90 @@ test('an auto compaction 54 minutes after the last turn is sent as idle; one at 
   const ends = posts.map(p => p.body).filter(b => b.hook_event_name === 'Compaction' && b.phase === 'end')
   expect(ends.map(b => b.trigger)).toEqual(['idle', 'auto'])
 })
+
+test('a fork and a background agent are sent as such', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  let n = 0
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `agent-${++n}` }))
+
+  await $.agent.spawn({ tool_use_id: 'tu-1', prompt: 'Look', description: 'Explore', subagentType: 'fork', fork: true, background: true } as never)
+  await $.agent.spawn({ tool_use_id: 'tu-2', prompt: 'Look', description: 'Review', subagentType: 'reviewer', fork: false, background: false } as never)
+  await clock.settle()
+
+  const starts = posts.map(p => p.body).filter(b => b.hook_event_name === 'SubagentStart')
+  expect(starts.map(b => [b.fork, b.background])).toEqual([[true, true], [undefined, undefined]])
+})
+
+test('a call its tool held read-only says so at its end; a dialog says which hook asked and who may answer', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('tool.check', (_$, e) => (e.tool === 'Read'
+    ? { decision: 'allow' }
+    : { decision: 'ask', reason: 'Migrations change the shared database', hook: 'PreToolUse', decider: 'person' }) as never)
+  on('tool.call', () => ({ result: {} as never, text: 'ok' }) as never)
+  on('classic.PermissionRequest', () => ({}))
+
+  // Each call's check, as the engine runs it before the tool
+  await $.tool.check({ tool: 'Read', input: {}, tool_use_id: 'tu-read', isReadOnly: true } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/work/app/a.ts', tool_use_id: 'tu-read' } as never)
+  await $.tool.check({ tool: 'Bash', input: {}, tool_use_id: 'tu-bash' } as never)
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npx prisma migrate dev' } })
+  await $.tool.call({ tool: 'Bash', command: 'npx prisma migrate dev', tool_use_id: 'tu-bash' } as never)
+  await clock.settle()
+
+  const bodies = posts.map(p => p.body)
+  const ends = bodies.filter(b => b.hook_event_name === 'PostToolUse')
+  expect(ends.map(b => [b.tool_name, b.read_only])).toEqual([['Read', true], ['Bash', undefined]])
+  expect(bodies.find(b => b.hook_event_name === 'PermissionRequest')).toEqual(expect.objectContaining({
+    tool_use_id: 'tu-bash', hook: 'PreToolUse', decider: 'person', reason: 'Migrations change the shared database',
+  }))
+})
+
+test('a resumed conversation is sent with how long it sat and what re-caching it costs', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('classic.SessionStart', () => ({}))
+
+  await $.classic.SessionStart({
+    session_id: 'session-2', source: 'resume', seconds_since_last_response: 11_520,
+    context_tokens: 412_000, prompt_cache_likely_expired: true, estimated_cache_write_usd: 2.06,
+  } as never)
+  await $.classic.SessionStart({ session_id: 'session-3', source: 'startup' } as never)
+  await clock.settle()
+
+  expect(posts.map(p => p.body).filter(b => b.hook_event_name === 'SessionResume')).toEqual([expect.objectContaining({
+    session_id: 'session-2', source: 'resume', seconds_since_last_response: 11_520,
+    context_tokens: 412_000, prompt_cache_likely_expired: true, estimated_cache_write_usd: 2.06,
+  })])
+})
+
+for (const [label, surface, setting, expected] of [
+  ['outside the terminal', null, undefined, false],
+  ['where settings.json turns it off', 'terminal', false, false],
+  ['in the terminal, by default', 'terminal', undefined, undefined],
+] as const) {
+  test(`idle compaction is said off ${label}`, async ($, on) => {
+    const { clock, posts } = agentFlow(on)
+    on('command.register', () => ({ value: undefined }) as never)
+    on('session.start', (_$, e) => ({ cwd: e.cwd }) as never)
+    on('session.measure', (_$, e) => e as never)
+    on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1_000_000 }, rateLimits: [] } }))
+    on('settings.read', () => ({ value: setting === undefined ? {} : { idleCompaction: setting } }) as never)
+
+    await $.session.start({ cwd: `${WORKSPACE}/src`, surface, isInteractive: surface === 'terminal' } as never)
+    await $.session.measure({ context: { window: 1_000_000, tokens: 300_000 }, rateLimits: [], changed: ['context'] } as never)
+    await clock.settle()
+
+    const measure = posts.map(p => p.body).find(b => b.hook_event_name === 'SessionMeasure')!
+    expect(measure.idle_compaction).toBe(expected)
+  })
+}
+
+test('a compaction’s end carries what its summary cost', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  const usage = { input_tokens: 2_100, output_tokens: 1_850, cache_read_input_tokens: 68_000, cache_creation_input_tokens: 0 }
+  on('session.compact', (_$, e) => ({ messages: e.messages, tokensBefore: 70_100, tokensAfter: 6_100, usage }) as never)
+
+  await $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as never)
+  await clock.settle()
+
+  expect(posts.map(p => p.body).find(b => b.hook_event_name === 'Compaction' && b.phase === 'end')!.usage).toEqual(usage)
+})

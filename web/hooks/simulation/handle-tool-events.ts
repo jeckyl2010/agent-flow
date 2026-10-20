@@ -110,6 +110,7 @@ export function handleToolCallEnd(
   const tokenCost = typeof payload.tokenCost === 'number' ? payload.tokenCost : undefined
   const isError = asBoolean(payload.isError)
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
+  const readOnly = payload.readOnly === true
   const agent = state.agents.get(agentName)
 
   if (agent) {
@@ -120,12 +121,17 @@ export function handleToolCallEnd(
       pendingPermission: undefined, // allowed, or denied: either way no longer waiting
       // A measured count already includes the result; the next measurement moves it
       tokensUsed: agent.isTokensMeasured ? agent.tokensUsed : agent.tokensUsed + (tokenCost ?? 0),
+      ...(readOnly ? { readOnlyCalls: (agent.readOnlyCalls ?? 0) + 1 } : {}),
     })
 
     const toolState: 'error' | 'complete' = isError ? 'error' : 'complete'
     for (const [id, tc] of state.toolCalls) {
       if (tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running') {
-        state.toolCalls.set(id, { ...tc, state: toolState, completeTime: currentTime, result, tokenCost, errorMessage: isError ? (errorMessage || result) : undefined })
+        state.toolCalls.set(id, {
+          ...tc, state: toolState, completeTime: currentTime, result, tokenCost,
+          errorMessage: isError ? (errorMessage || result) : undefined,
+          ...(readOnly ? { readOnly } : {}),
+        })
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end

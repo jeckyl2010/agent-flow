@@ -54,6 +54,21 @@ export interface TimeHorizon {
   compactions: CompactionMark[]
   /** Each subagent the session sent out, in order */
   subagents: SubagentRun[]
+  /** The earlier conversation this one resumed, where Claude Code said */
+  resume?: ResumeMark
+}
+
+/** A resume, as Claude Code's SessionStart hook said it, and what its first request then wrote */
+export interface ResumeMark {
+  time: number
+  source: string
+  idleSeconds: number
+  contextTokens?: number
+  cacheExpired?: boolean
+  /** Claude Code's estimate of re-caching the context, $ */
+  estimatedUsd?: number
+  /** What the first request after it wrote to the prompt cache, as the API measured it */
+  firstWrite?: { tokens: number; oneHour: number; model?: string }
 }
 
 export interface SubagentRun {
@@ -68,6 +83,8 @@ export interface SubagentRun {
   requests: number
   tools: number
   outputTokens: number
+  /** Run in the background: it works on after the turn that started it ends */
+  background?: boolean
 }
 
 /** A run's identity: names repeat (several `Explore` subagents), a name and its start don't */
@@ -147,8 +164,11 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
   /** Tasks the dispatch named, for the spawn that follows it */
   const dispatched = new Map<string, string>()
 
+  let resume: ResumeMark | undefined
+
   const kindNow = (): TimeKind => {
-    if (!inTurn) return 'waiting'
+    // Between turns, a background subagent still out is the one working: you wait on it
+    if (!inTurn) return [...out.values()].some(r => r.background) ? 'subagents' : 'waiting'
     if (waitingPermission) return 'permission'
     for (const name of running.keys()) if (SUBAGENT_TOOLS.has(name)) return 'subagents'
     return running.size > 0 ? 'tools' : 'thinking'
@@ -196,6 +216,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
           const run: SubagentRun = {
             name, start: e.time, task: str(p.task) || dispatched.get(name) || undefined,
             model: str(p.model) || undefined, requests: 0, tools: 0, outputTokens: 0,
+            ...(p.background === true ? { background: true } : {}),
           }
           subagents.push(run)
           out.set(name, run)
@@ -204,6 +225,12 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
       case 'model_detected':
         if (sub) sub.model = str(p.model) || sub.model
         break
+      case 'agent_status': {
+        // Its launch answered at once: it went to the background
+        const run = out.get(str(p.name))
+        if (run && p.background === true) run.background = true
+        break
+      }
       case 'model_step':
         if (sub) {
           sub.requests++
@@ -226,6 +253,11 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
       case 'agent_complete': {
         const done = out.get(str(p.name))
         if (done) { done.end ??= e.time; out.delete(done.name) }
+        // The session's end is every agent's
+        if (p.sessionEnd === true) {
+          for (const run of out.values()) run.end ??= e.time
+          out.clear()
+        }
         break
       }
     }
@@ -276,6 +308,14 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
       case 'session_measure':
         compactThreshold = num(p.compactThreshold) || compactThreshold
         break
+      case 'session_resume':
+        resume = {
+          time: e.time, source: str(p.source) || 'resume', idleSeconds: num(p.idleSeconds),
+          ...(typeof p.contextTokens === 'number' ? { contextTokens: p.contextTokens } : {}),
+          ...(typeof p.cacheExpired === 'boolean' ? { cacheExpired: p.cacheExpired } : {}),
+          ...(typeof p.estimatedUsd === 'number' ? { estimatedUsd: p.estimatedUsd } : {}),
+        }
+        break
       case 'context_compaction':
         // What grew before is gone: the fit starts again from what the compaction left
         if (p.phase === 'end' && p.isHistory !== true) {
@@ -294,6 +334,8 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
         const oneHour = num(usage.cache_creation_1h_input_tokens)
         if (oneHour > 0) ttl = CACHE_1H
         else if (written > 0) ttl = CACHE_5M
+        // The first request after a resume: what re-caching the context really took
+        if (resume && !resume.firstWrite) resume.firstWrite = { tokens: written, oneHour, model: str(p.model) || undefined }
         // A read refreshes the entry at its own TTL; a request that neither read nor wrote leaves it
         const tokens = num(usage.cache_read_input_tokens) + written
         if (tokens > 0) {
@@ -323,7 +365,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
     }
   }
 
-  return { totals, segments, elapsed: Math.max(0, now - start), start, turns, cache, emissions, turnLog, context, compactThreshold, compactions, subagents }
+  return { totals, segments, elapsed: Math.max(0, now - start), start, turns, cache, emissions, turnLog, context, compactThreshold, compactions, subagents, resume }
 }
 
 /** `1:02:03`, or `2:03` under an hour */

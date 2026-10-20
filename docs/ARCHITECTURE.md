@@ -74,7 +74,13 @@ Some things neither source states. These are the places to look first when Claud
 - **Idle compaction** (2.1.299+): Claude Code records it as `auto`. An `auto` compaction 50 to 60
   minutes after the main loop last finished is taken as idle, in the mod (`register.ts`) and in
   the transcript parser. The Wormhole log's countdown assumes 54 minutes and 200K tokens, or the
-  `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` the mod read.
+  `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` the mod read. It runs only in the terminal and not where
+  settings.json sets `"idleCompaction": false`: the mod reads the session's surface and the
+  setting from the engine; without the mod, the transcript's `entrypoint` (`cli`) and the user's
+  and project's settings files (`idle-compaction.ts`), not managed settings.
+- **Background subagents** without the mod: an Agent call answered `Async agent launched` sent
+  its agent to the background, and the `<task-notification>` naming that call ends it
+  (`transcript-parser.ts`).
 - **The system prompt's size**: estimated from the text of the `api-request-shape` records
   (2.1.300+), a flat 5,000 tokens before them.
 - **Token counts of messages and tool results**: estimated from their text (`token-estimator.ts`).

@@ -6,13 +6,13 @@ import { Z, type Agent, type SimulationEvent } from '@/lib/agent-types'
 import { FRAME_RATE } from '@/lib/canvas-constants'
 import { frameLimiter } from '@/lib/frame-limiter'
 import { COLORS } from '@/lib/colors'
-import { formatCount } from '@/lib/utils'
+import { formatCount, formatUsd } from '@/lib/utils'
 import {
   timeHorizon, formatDuration, longest, predictConsumption, parallelism, runKey, TIME_KINDS,
-  type Consumption, type TimeHorizon, type TimeKind,
+  type Consumption, type ResumeMark, type TimeHorizon, type TimeKind,
 } from '@/lib/time-horizon'
 import { sessionCosts } from '@/lib/session-costs'
-import { cachedPromptCost } from '@/lib/model-pricing'
+import { cachedPromptCost, stepCost } from '@/lib/model-pricing'
 import { chosenGrid, sessionImpacts, midpoint, formatImpact } from '@/lib/eco-impact'
 import { createScene, shipColor, KIND_COLOR, type Hover, type Scene, type SceneInput } from './time-horizon-scene'
 import { createGlScene, type Backdrop, type GlScene } from './time-horizon/gl/scene'
@@ -549,6 +549,7 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
           ) : (
             <div className="mt-1 text-[10px]" style={{ color: COLORS.textDim }}>No measured requests yet</div>
           )}
+          {h.resume && <ResumeNote resume={h.resume} />}
         </div>
 
         <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.holoBorder08}` }}>
@@ -581,9 +582,31 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
   )
 })
 
-/** A small amount of money with the digits that show it: $0.0066, $0.26, $1.40 */
-function usd(v: number): string {
-  return `$${v.toFixed(v < 0.01 ? 4 : v < 1 ? 3 : 2)}`
+const usd = formatUsd
+
+/** The earlier conversation this one resumed: how long it sat, what Claude Code estimated its first
+ *  request would write to the cache again, and what it did write */
+function ResumeNote({ resume }: { resume: ResumeMark }) {
+  const write = resume.firstWrite
+  const wrote = write && write.tokens > 0
+    ? stepCost({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: write.tokens, cache_creation_1h_input_tokens: write.oneHour }, write.model)
+    : undefined
+  const tokens = resume.contextTokens !== undefined ? `${formatCount(resume.contextTokens)} tokens` : 'its context'
+  return (
+    <div className="mt-2 text-[9px] leading-snug" style={{ color: COLORS.textDim }}>
+      <div style={{ color: COLORS.textPrimary }}>
+        {resume.source === 'fork' ? 'Forked from a conversation' : 'Resumed a conversation'} idle {formatDuration(resume.idleSeconds)}
+      </div>
+      {resume.cacheExpired === true && (
+        <div>
+          Its cache had lapsed: the first request writes {tokens} to it again
+          {resume.estimatedUsd !== undefined && <>, <span style={{ color: COLORS.timePermission }}>≈ {usd(resume.estimatedUsd)}</span> by Claude Code’s estimate</>}
+        </div>
+      )}
+      {resume.cacheExpired === false && <div>Its cache was still warm: the first request reads {tokens} back</div>}
+      {wrote !== undefined && <div>It wrote {formatCount(write!.tokens)}: {usd(wrote)}, as the API measured it</div>}
+    </div>
+  )
 }
 
 /** How many times a warm read a cold rewrite costs: `40×` */

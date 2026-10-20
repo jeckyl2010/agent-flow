@@ -28,6 +28,7 @@ import { estimateTokensFromContent, estimateTokensFromText } from './token-estim
 import { createLogger } from './logger'
 import { isModSession } from './mod-sessions'
 import { recordTranscriptUsage, parseTranscriptStep, modelStepPayload } from './transcript-usage'
+import { canIdleCompact } from './idle-compaction'
 
 const log = createLogger('TranscriptParser')
 
@@ -37,6 +38,12 @@ export interface TranscriptParserDelegate {
   getSession(sessionId: string): WatchedSession | undefined
   fireSessionLifecycle(event: { type: 'started' | 'ended' | 'updated'; sessionId: string; label: string }): void
   emitContextUpdate(agentName: string, session: WatchedSession, sessionId?: string): void
+}
+
+/** What ran the session and where, from the first transcript entry that says */
+function noteSessionSource(line: Record<string, unknown>, session: WatchedSession): void {
+  if (!session.entrypoint && typeof line.entrypoint === 'string') session.entrypoint = line.entrypoint
+  if (!session.cwd && typeof line.cwd === 'string') session.cwd = line.cwd
 }
 
 /** Type guard: check if a value is a non-null object */
@@ -60,6 +67,26 @@ function compactBoundary(line: Record<string, unknown>, lastEntryAt?: string): C
     durationMs: num(meta.durationMs),
     at: typeof line.timestamp === 'string' ? line.timestamp : undefined,
   }
+}
+
+/** A subagent's launch in the background: its Agent call answers at once, before the agent does
+ *  anything, with this (and `toolUseResult.status: async_launched`) */
+const ASYNC_LAUNCH = /^Async agent launched/
+
+/** A background agent's end, as the main conversation is told it: a `<task-notification>` user
+ *  message naming the Agent call that launched it, its status and a summary */
+export function parseTaskNotification(text: string): { toolUseId: string; status?: string; summary?: string } | undefined {
+  if (!text.startsWith('<task-notification')) return undefined
+  const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim()
+  const toolUseId = tag('tool-use-id')
+  return toolUseId ? { toolUseId, status: tag('status'), summary: tag('summary') } : undefined
+}
+
+/** A user message's text: the string, or its first text block's */
+function userText(content: TranscriptEntry['message']['content']): string {
+  if (typeof content === 'string') return content.trim()
+  const block = content.find(b => b.type === 'text' && 'text' in b) as { text?: unknown } | undefined
+  return typeof block?.text === 'string' ? block.text.trim() : ''
 }
 
 /** A compaction as the UI takes it: one that ended */
@@ -147,6 +174,9 @@ export class TranscriptParser {
   }>()
   /** Maps Agent tool_use ID → resolved child agent name (set in handleToolUse) */
   private subagentChildNames = new Map<string, string>()
+  /** Agent tool_use ID → the subagent it launched in the background, and the agent that did, until
+   *  the task notification that it ended */
+  private backgroundChildren = new Map<string, { child: string; parent: string }>()
 
   constructor(private delegate: TranscriptParserDelegate) {}
 
@@ -156,6 +186,7 @@ export class TranscriptParser {
     for (const toolUseId of pendingToolUseIds) {
       this.inlineSubagentState.delete(toolUseId)
       this.subagentChildNames.delete(toolUseId)
+      this.backgroundChildren.delete(toolUseId)
     }
   }
 
@@ -203,6 +234,10 @@ export class TranscriptParser {
     const msg = parsed.message as TranscriptEntry['message'] | undefined
     if (!msg) { return }
     if (session && isMainFile && typeof parsed.timestamp === 'string') session.lastEntryAt = parsed.timestamp
+    if (session && isMainFile && sessionId) {
+      noteSessionSource(parsed, session)
+      this.tellIdleCompaction(session, sessionId)
+    }
 
     // Now we know this is a valid transcript entry
     const entry: TranscriptEntry = {
@@ -218,6 +253,12 @@ export class TranscriptParser {
     }
 
     const role = msg.role // 'assistant', 'user', 'human'
+
+    // A background subagent ended: its launch answered long ago, so this is its return
+    if (role === 'user' && isMainFile) {
+      const notice = parseTaskNotification(userText(msg.content))
+      if (notice) this.handleTaskNotification(notice, sessionId)
+    }
 
     // Extract model from assistant messages (updates tokensMax on the frontend).
     // Per-agent tracking: re-emit when the model changes (e.g. /model switch).
@@ -388,7 +429,10 @@ export class TranscriptParser {
       const session = sessionId ? this.delegate.getSession(sessionId) : undefined
       if (!isReported && !session?.spawnedSubagents.has(childName)) {
         session?.spawnedSubagents.add(childName)
-        emitSubagentSpawn(this.delegate, agentName, childName, args, sessionId)
+        emitSubagentSpawn(this.delegate, agentName, childName, args, sessionId, {
+          fork: block.input.subagent_type === 'fork',
+          background: block.input.run_in_background === true,
+        })
       }
     }
 
@@ -444,12 +488,21 @@ export class TranscriptParser {
       // Clean up inline subagent tracking state
       this.subagentChildNames.delete(block.tool_use_id)
       this.inlineSubagentState.delete(block.tool_use_id)
-      if (!isReported) this.delegate.emit({
+      if (ASYNC_LAUNCH.test(result)) {
+        // Launched in the background (the default in interactive sessions): it works on, and its
+        // task notification says when it ends
+        this.backgroundChildren.set(block.tool_use_id, { child: childName, parent: agentName })
+        if (!isReported) this.delegate.emit({
+          time: this.delegate.elapsed(sessionId),
+          type: 'agent_status',
+          payload: { name: childName, status: 'running', background: true },
+        }, sessionId)
+      } else if (!isReported) this.delegate.emit({
         time: this.delegate.elapsed(sessionId),
         type: 'subagent_return',
         payload: { child: childName, parent: agentName, summary: result.slice(0, ARGS_MAX) },
       }, sessionId)
-      if (!isReported) this.delegate.emit({
+      if (!isReported && !this.backgroundChildren.has(block.tool_use_id)) this.delegate.emit({
         time: this.delegate.elapsed(sessionId),
         type: 'agent_complete',
         payload: { name: childName },
@@ -530,6 +583,36 @@ export class TranscriptParser {
    */
   /** A compaction as it is written: the context estimate starts over from the summary, which the
    *  next line brings. The bridge mod reports a session's own, as it starts and ends */
+  /** A background subagent's end, from the task notification the main conversation got */
+  private handleTaskNotification(notice: { toolUseId: string; status?: string; summary?: string }, sessionId?: string): void {
+    const launched = this.backgroundChildren.get(notice.toolUseId)
+    if (!launched) return
+    this.backgroundChildren.delete(notice.toolUseId)
+    if (sessionId && isModSession(sessionId)) return // the mod reports its end
+    const time = this.delegate.elapsed(sessionId)
+    this.delegate.emit({
+      time,
+      type: 'subagent_return',
+      payload: {
+        child: launched.child, parent: launched.parent,
+        summary: (notice.summary || `${launched.child} ${notice.status ?? 'finished'}`).slice(0, ARGS_MAX),
+      },
+    }, sessionId)
+    this.delegate.emit({ time, type: 'agent_complete', payload: { name: launched.child } }, sessionId)
+  }
+
+  /** Tells the web, once, whether idle compaction can run in this session: its forecast is dropped
+   *  where it won't. Nothing for a session the bridge mod reports (it reads the engine's own) */
+  tellIdleCompaction(session: WatchedSession, sessionId: string): void {
+    if (session.isIdleCompactionTold || !session.entrypoint || isModSession(sessionId)) return
+    session.isIdleCompactionTold = true
+    this.delegate.emit({
+      time: this.delegate.elapsed(sessionId),
+      type: 'session_measure',
+      payload: { agent: ORCHESTRATOR_NAME, idleCompaction: canIdleCompact(session.entrypoint, session.cwd) },
+    }, sessionId)
+  }
+
   private handleCompaction(compaction: CompactionRecord, agentName: string, sessionId?: string): void {
     const session = sessionId ? this.delegate.getSession(sessionId) : undefined
     if (session && agentName === ORCHESTRATOR_NAME) {
@@ -568,6 +651,7 @@ export class TranscriptParser {
           if ((entry.type === 'user' || entry.type === 'assistant') && typeof record.timestamp === 'string') {
             session.lastEntryAt = record.timestamp
           }
+          noteSessionSource(record, session)
           // Build dedup sets for tool_use blocks and messages + accumulate token counts
           const isUser = entry.message?.role === 'user' || entry.message?.role === 'human'
           if (entry.message && Array.isArray(entry.message.content)) {
@@ -662,6 +746,7 @@ export class TranscriptParser {
   /** Emit message events for pre-existing transcript entries (catch-up on session detection).
    *  Only emits the last user message (the current turn), not the full history. */
   emitCatchUpEntries(entries: TranscriptEntry[], session: WatchedSession, sessionId: string): void {
+    this.tellIdleCompaction(session, sessionId)
     // The compactions before it was watched, for the wormhole log
     for (const compaction of session.pastCompactions) {
       this.delegate.emit({

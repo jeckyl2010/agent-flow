@@ -10,7 +10,7 @@ import type { SimulationState, ConversationMessage } from './types'
 import { handleAgentSpawn, handleAgentComplete, handleAgentIdle, handleAgentStatus, handlePermissionRequested, handleModelDetected } from './handle-agent-events'
 import { handleToolCallStart, handleToolCallEnd } from './handle-tool-events'
 import { handleMessage, handleContextUpdate } from './handle-message-events'
-import { handleContextCompaction, handleSessionMeasure, handleAgentMessage, handleTurnFailed } from './handle-session-events'
+import { handleContextCompaction, handleSessionMeasure, handleSessionResume, handleAgentMessage, handleTurnFailed } from './handle-session-events'
 import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-events'
 import { handleModelStep } from './handle-step-events'
 
@@ -88,6 +88,7 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         case 'permission_requested': handlePermissionRequested(event.payload, prev.currentTime, state, ctx); break
         case 'context_compaction': handleContextCompaction(event.payload, prev.currentTime, state); break
         case 'session_measure':   handleSessionMeasure(event.payload, state); break
+        case 'session_resume':    handleSessionResume(event.payload, prev.currentTime, state); break
         case 'agent_message':     handleAgentMessage(event.payload, prev.currentTime, state); break
         case 'turn_failed':       handleTurnFailed(event.payload, prev.currentTime, state); break
       }
