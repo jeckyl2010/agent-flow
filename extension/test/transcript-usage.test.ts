@@ -11,7 +11,7 @@ import type { WatchedSession } from '../src/protocol'
 import { recordTranscriptUsage, modelStepPayload, oneHourWrites } from '../src/transcript-usage'
 
 function session(): WatchedSession {
-  return { usageSeenIds: new Set(), usageTotals: new Map() } as unknown as WatchedSession
+  return { usageOutputs: new Map(), usageTotals: new Map() } as unknown as WatchedSession
 }
 
 function assistant(id: string, output: number, model = 'claude-opus-5-5', block = 'text') {
@@ -42,6 +42,17 @@ describe('recordTranscriptUsage', () => {
     })
     assert.equal(again, undefined)
     assert.equal(s.usageTotals.get('orchestrator')?.steps, 1)
+  })
+
+  it('adds the output a later entry of a request reports, as a pre-2.1.307 subagent transcript writes it', () => {
+    const s = session()
+    recordTranscriptUsage(assistant('msg_1', 8), 'explorer', s)
+    assert.equal(recordTranscriptUsage(assistant('msg_1', 8), 'explorer', s), undefined)
+    assert.equal(recordTranscriptUsage(assistant('msg_1', 412), 'explorer', s), undefined)
+    const totals = s.usageTotals.get('explorer')!
+    assert.equal(totals.steps, 1)
+    assert.equal(totals.byModel.get('claude-opus-5-5')?.output_tokens, 412)
+    assert.equal(totals.byModel.get('claude-opus-5-5')?.requests, 1)
   })
 
   it('sums each agent per model', () => {
