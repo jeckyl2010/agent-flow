@@ -147,17 +147,10 @@ for (const [name, env, gateway] of [
 test('a subagent started from a subagent names its parent', async ($, on) => {
   const { clock, posts } = agentFlow(on)
   on('agent.spawn', () => ({ model: 'claude-haiku-4-5', agentId: 'child-1' }))
-  let finishAgentCall = () => {}
-  on('tool.call', () => new Promise(resolve => {
-    finishAgentCall = () => resolve({ result: {} as never, text: 'done' } as never)
-  }))
 
-  // The parent subagent's Agent call is open while its child spawns, as in a session
-  const agentCall = $.tool.call({ tool: 'Agent', tool_use_id: 'tu-agent', agentId: 'parent-1', description: 'Find the config', prompt: 'Look' } as never)
-  await clock.settle()
-  await $.agent.spawn({ tool_use_id: 'tu-agent', prompt: 'Look', description: 'Find the config', subagentType: 'Explore' } as never)
-  finishAgentCall()
-  await agentCall
+  await $.agent.spawn({
+    tool_use_id: 'tu-agent', prompt: 'Look', description: 'Find the config', subagentType: 'Explore', parentAgentId: 'parent-1',
+  } as never)
   await clock.settle()
 
   expect(posts.map(p => p.body).find(b => b.hook_event_name === 'SubagentStart')).toEqual(expect.objectContaining({
@@ -386,9 +379,12 @@ test('a fork and a background agent are sent as such', async ($, on) => {
 
 test('a call its tool held read-only says so at its end; a dialog says which hook asked and who may answer', async ($, on) => {
   const { clock, posts } = agentFlow(on)
-  on('tool.check', (_$, e) => (e.tool === 'Read'
+  // The call checks again as it runs (2.1.308's test engine too): by then the person has approved.
+  // The engine names the plugin whose hook asked; here the test's hook stands in for one
+  const asked = new Set<string>()
+  on('tool.check', (_$, e) => (e.tool === 'Read' || asked.has(e.tool_use_id!)
     ? { decision: 'allow' }
-    : { decision: 'ask', reason: 'Migrations change the shared database', hook: 'PreToolUse', decider: 'person' }) as never)
+    : (asked.add(e.tool_use_id!), { decision: 'ask', reason: 'Migrations change the shared database', hook: 'PreToolUse', plugin: 'migration-guard' })) as never)
   on('tool.call', () => ({ result: {} as never, text: 'ok' }) as never)
   on('classic.PermissionRequest', () => ({}))
 

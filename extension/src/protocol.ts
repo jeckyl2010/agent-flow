@@ -244,8 +244,9 @@ export interface WatchedSession {
   modelDetectedAgents: Map<string, string>
   permissionTimer: NodeJS.Timeout | null
   permissionEmitted: boolean
-  /** Ids of the model requests whose usage the transcript has reported, each counted once */
-  usageSeenIds: Set<string>
+  /** The model requests whose usage the transcript has reported, each counted once: id → the
+   *  output tokens counted for it */
+  usageOutputs: Map<string, number>
   /** Each agent's model usage as its transcript records it, summed */
   usageTotals: Map<string, UsageTotals>
   contextBreakdown: {

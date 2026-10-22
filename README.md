@@ -86,9 +86,9 @@ and transcripts only let Agent Flow guess. With it you get:
 claude --plugin-dir /path/to/agent-flow/plugin
 ```
 
-`/agent-flow` in Claude Code shows where it sends events. Each feature arrives with the Claude
-Code release that reports it, and the mod API is early access: sessions without the mod keep
-working from the hooks and transcripts.
+`/agent-flow` in Claude Code shows where it sends events. The mod needs Claude Code 2.1.300 or
+later. Each feature arrives with the Claude Code release that reports it, and the mod API is early
+access: sessions without the mod keep working from the hooks and transcripts.
 
 ## Settings
 

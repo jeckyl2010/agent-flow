@@ -21,7 +21,7 @@ export function createWatchedSession(
     pendingToolCalls: new Map(),
     seenToolUseIds: new Set(),
     seenMessageHashes: new Set(),
-    usageSeenIds: new Set(),
+    usageOutputs: new Map(),
     usageTotals: new Map(),
     sessionDetected: false,
     sessionCompleted: false,

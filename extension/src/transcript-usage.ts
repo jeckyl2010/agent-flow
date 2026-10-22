@@ -91,16 +91,32 @@ export function parseTranscriptStep(parsed: unknown): { id: string; step: Transc
 }
 
 /** Counts the request a parsed entry belongs to into the agent's totals, the first time it is
- *  seen; returns it then, and undefined for an entry already counted or not a request's */
+ *  seen; returns it then, and undefined for an entry already counted or not a request's.
+ *
+ *  Before 2.1.307 a subagent's transcript could first record a streamed request with the output
+ *  tokens counted at its start: a later entry of it that reports more adds the difference */
 export function recordTranscriptUsage(
   parsed: unknown,
   agentName: string,
   session: WatchedSession,
 ): TranscriptStep | undefined {
   const found = parseTranscriptStep(parsed)
-  if (!found || session.usageSeenIds.has(found.id)) return undefined
-  session.usageSeenIds.add(found.id)
-  addUsage(session.usageTotals, agentName, found.step.model, found.step.usage)
+  if (!found) return undefined
+  const { model, usage } = found.step
+  const counted = session.usageOutputs.get(found.id)
+  if (counted !== undefined) {
+    const sum = session.usageTotals.get(agentName)?.byModel.get(model)
+    if (sum && usage.output_tokens > counted) {
+      sum.output_tokens += usage.output_tokens - counted
+      if (sum.long_prompt && usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens > LONG_PROMPT_TOKENS) {
+        sum.long_prompt.output_tokens += usage.output_tokens - counted
+      }
+      session.usageOutputs.set(found.id, usage.output_tokens)
+    }
+    return undefined
+  }
+  session.usageOutputs.set(found.id, usage.output_tokens)
+  addUsage(session.usageTotals, agentName, model, usage)
   return found.step
 }
 
