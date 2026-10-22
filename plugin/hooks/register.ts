@@ -12,6 +12,8 @@ import type { EngineInterface, Register, SessionRateLimit, TurnStepServerToolUse
  *
  * Every payload carries `agent_flow_source: 'mod'`: the hook server then ignores the command
  * hooks' copies for that session.
+ *
+ * It needs Claude Code 2.1.300 or later; facts a later release adds are sent only when present.
  */
 
 type Payload = Record<string, unknown> & { hook_event_name: string }
@@ -54,9 +56,6 @@ let queue: Payload[] = []
 let isFlushScheduled = false
 let targets: Target[] = []
 let scannedAt = -Infinity
-/** tool_use_id → the subagent whose call it is, for engines before 2.1.290, whose permission check
- *  carries no agentId */
-const toolAgents = new Map<string, string>()
 /** agentId → its type, as the command hooks' `agent_type` */
 const agentTypes = new Map<string, string>()
 /** Teammates (agent teams), by agentId: they idle between messages, so a turn's end isn't theirs */
@@ -174,7 +173,6 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     send($, { hook_event_name: 'SessionEnd', reason: e.reason, session_id: e.sessionId })
     sessionId = undefined // a /clear goes on under a new id, with no session.start
-    toolAgents.clear()
     agentTypes.clear()
     asks.clear()
     readOnly.clear()
@@ -198,7 +196,6 @@ export const register: Register = (on, options) => {
     const { tool, tool_use_id, agentId, ...rest } = e
     const { consent: _consent, ...input } = rest as Record<string, unknown> // the person's words, not the tool's
     const call = { tool_name: tool, tool_input: input, tool_use_id, ...agentFields(agentId) }
-    if (tool_use_id && agentId) toolAgents.set(tool_use_id, agentId)
     send($, { hook_event_name: 'PreToolUse', ...call })
 
     try {
@@ -222,7 +219,6 @@ export const register: Register = (on, options) => {
       throw error
     } finally {
       if (tool_use_id) {
-        toolAgents.delete(tool_use_id)
         asks.delete(tool_use_id)
         readOnly.delete(tool_use_id)
       }
@@ -232,16 +228,17 @@ export const register: Register = (on, options) => {
   // An `ask` goes to the mode's decider (auto mode's classifier may allow it unseen), so the
   // request is sent only once a dialog shows; the verdict is kept for its reason, its rule and the
   // organization's ceiling (since 2.1.290: `ask` when its administrators require an approval), the
-  // hook or setting that asked, and whether only a person can answer it (2.1.304: `decider`).
+  // hook or setting that asked, and whether only a person can answer it: an ask a plugin's hook made
+  // (2.1.308: `plugin`), which no classifier settles, sent as `decider: "person"`.
   // Every check says whether the tool held the input read-only (2.1.304: `isReadOnly`)
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     if (e.tool_use_id && e.isReadOnly) readOnly.add(e.tool_use_id)
     if (verdict.decision === 'ask' && e.tool_use_id) {
       asks.set(e.tool_use_id, {
-        tool: e.tool, agentId: e.agentId ?? toolAgents.get(e.tool_use_id),
+        tool: e.tool, agentId: e.agentId,
         reason: verdict.reason, rule: verdict.rule, ceiling: verdict.ceiling,
-        hook: verdict.hook, setting: verdict.setting, decider: verdict.decider,
+        hook: verdict.hook, setting: verdict.setting, ...(verdict.plugin ? { decider: 'person' } : {}),
       })
     }
     return verdict
@@ -280,7 +277,7 @@ export const register: Register = (on, options) => {
     const spawned = await next(e)
     if (spawned.agentId) {
       // Since 2.1.289 a teammate's spawn comes here too, with its name in the team, and since
-      // 2.1.292 a workflow script's, with its run and its place in it; older engines leave these out.
+      // 2.1.292 a workflow script's, with its run and its place in it.
       // Since 2.1.299 a finished subagent or a teammate brought back is too (`resume`): the same
       // agent, which Agent Flow wakes rather than starts
       agentTypes.set(spawned.agentId, e.subagentType)
@@ -292,7 +289,7 @@ export const register: Register = (on, options) => {
         agent_id: spawned.agentId, agent_type: e.subagentType,
         tool_use_id: e.tool_use_id, description: e.description, model: spawned.model,
         // absent when the main loop started it
-        parent_agent_id: e.parentAgentId ?? toolAgents.get(e.tool_use_id),
+        parent_agent_id: e.parentAgentId,
         ...(e.isTeammate ? { is_teammate: true, agent_name: e.name } : {}),
         ...(e.workflow ? { workflow_run_id: e.workflow.runId, workflow_agent_index: e.workflow.agentIndex } : {}),
         ...(compactWindow !== undefined ? { auto_compact_window: compactWindow } : {}),
@@ -524,15 +521,13 @@ function endTeammate($: EngineInterface, agentId: string, reason: string): void 
 }
 
 /**
- * Raises a native notification through the person's own channel (2.1.295+), for what Agent Flow
- * would show them were they watching: a refused turn, a failed subagent, a rate-limit window nearly
- * used. Off with the `notify` option; an engine before 2.1.295 has no `$.ui.notify`, and sends none
+ * Raises a native notification through the person's own channel, for what Agent Flow would show
+ * them were they watching: a refused turn, a failed subagent, a rate-limit window nearly used. Off
+ * with the `notify` option
  */
 function notify($: EngineInterface, text: string): void {
   if (!isNotifying) return
-  try {
-    $.ui.notify(text, { title: 'Agent Flow' }).catch(() => undefined)
-  } catch { /* no $.ui.notify before 2.1.295 */ }
+  $.ui.notify(text, { title: 'Agent Flow' }).catch(() => undefined)
 }
 
 /** A notification for each rate-limit window that has just passed RATE_LIMIT_NOTIFY_PERCENT */

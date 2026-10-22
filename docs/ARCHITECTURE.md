@@ -96,7 +96,9 @@ The fork follows Claude Code release by release. Each round goes the same way, o
    `plugin-authoring` skill writes for the installed version (`claude-code.d.ts`). Grep them for
    the events the mod hooks.
 2. **The mod** (`plugin/hooks/register.ts`): send the new facts as fields on the hook-shaped
-   payload, and only when present, so older engines are unaffected. Test it in
+   payload, and only when present. The mod needs 2.1.300 or later: drop what only an older engine
+   needed rather than keep a fallback for it. Type-check it against the new types, as the mod API
+   is early access and changes between releases (2.1.308 dropped the verdict's `decider`). Test it in
    `plugin/tests/bridge.test.ts` (`claude plugin test plugin`).
 3. **The host**: add the fields to `HookPayload` in `hook-server.ts` and pass them into the event's
    payload. If the transcript records the same thing, read it in `transcript-parser.ts` too, for
