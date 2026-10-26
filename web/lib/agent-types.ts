@@ -86,6 +86,9 @@ export interface Agent {
   /** The main agent: false where idle compaction won't run (outside the terminal, or turned off in
    *  settings.json) */
   idleCompaction?: boolean
+  /** The main agent: false where auto-compaction won't run (turned off in the settings, or all
+   *  compaction by DISABLE_COMPACT): the context fills to the window's edge */
+  autoCompact?: boolean
   /** The main agent: the earlier conversation it resumed, where Claude Code said */
   resume?: SessionResume
   /** The main agent: the account's rate-limit windows, as the latest response reported them */

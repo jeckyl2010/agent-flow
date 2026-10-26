@@ -28,7 +28,7 @@ import { estimateTokensFromContent, estimateTokensFromText } from './token-estim
 import { createLogger } from './logger'
 import { isModSession } from './mod-sessions'
 import { recordTranscriptUsage, parseTranscriptStep, modelStepPayload } from './transcript-usage'
-import { canIdleCompact } from './idle-compaction'
+import { canIdleCompact, isCompactionDisabled } from './idle-compaction'
 
 const log = createLogger('TranscriptParser')
 
@@ -601,15 +601,20 @@ export class TranscriptParser {
     this.delegate.emit({ time, type: 'agent_complete', payload: { name: launched.child } }, sessionId)
   }
 
-  /** Tells the web, once, whether idle compaction can run in this session: its forecast is dropped
-   *  where it won't. Nothing for a session the bridge mod reports (it reads the engine's own) */
+  /** Tells the web, once, whether idle compaction can run in this session, and auto-compaction where
+   *  a settings file turns all compaction off: their forecasts are dropped where they won't. Nothing
+   *  for a session the bridge mod reports (it reads the engine's own) */
   tellIdleCompaction(session: WatchedSession, sessionId: string): void {
     if (session.isIdleCompactionTold || !session.entrypoint || isModSession(sessionId)) return
     session.isIdleCompactionTold = true
     this.delegate.emit({
       time: this.delegate.elapsed(sessionId),
       type: 'session_measure',
-      payload: { agent: ORCHESTRATOR_NAME, idleCompaction: canIdleCompact(session.entrypoint, session.cwd) },
+      payload: {
+        agent: ORCHESTRATOR_NAME,
+        idleCompaction: canIdleCompact(session.entrypoint, session.cwd),
+        ...(isCompactionDisabled(session.cwd) ? { autoCompact: false } : {}),
+      },
     }, sessionId)
   }
 

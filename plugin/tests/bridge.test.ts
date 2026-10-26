@@ -443,6 +443,29 @@ for (const [label, surface, setting, expected] of [
   })
 }
 
+for (const [label, env, breakdown, expected] of [
+  ['is said off where the engine says so', {}, { isAutoCompactEnabled: false }, { auto: false, idle: undefined }],
+  ['is said off, idle compaction too, where DISABLE_COMPACT turns all compaction off', { DISABLE_COMPACT: '1' }, { autoCompactThreshold: 835_000, isAutoCompactEnabled: true }, { auto: false, idle: false }],
+  ['goes unsaid by default', { DISABLE_COMPACT: 'false' }, { autoCompactThreshold: 835_000, isAutoCompactEnabled: true }, { auto: undefined, idle: undefined }],
+] as const) {
+  test(`auto-compaction ${label}`, async ($, on) => {
+    const { clock, posts } = agentFlow(on, env)
+    on('command.register', () => ({ value: undefined }) as never)
+    on('session.start', (_$, e) => ({ cwd: e.cwd }) as never)
+    on('session.measure', (_$, e) => e as never)
+    on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1_000_000, breakdown }, rateLimits: [] } }) as never)
+    on('settings.read', () => ({ value: {} }) as never)
+
+    await $.session.start({ cwd: `${WORKSPACE}/src`, surface: 'terminal', isInteractive: true } as never)
+    await $.session.measure({ context: { window: 1_000_000, tokens: 300_000 }, rateLimits: [], changed: ['context'] } as never)
+    await clock.settle()
+
+    const measure = posts.map(p => p.body).find(b => b.hook_event_name === 'SessionMeasure')!
+    expect(measure.auto_compact).toBe(expected.auto)
+    expect(measure.idle_compaction).toBe(expected.idle)
+  })
+}
+
 test('a compaction’s end carries what its summary cost', async ($, on) => {
   const { clock, posts } = agentFlow(on)
   const usage = { input_tokens: 2_100, output_tokens: 1_850, cache_read_input_tokens: 68_000, cache_creation_input_tokens: 0 }

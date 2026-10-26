@@ -559,7 +559,7 @@ export const TimeHorizonView = memo(function TimeHorizonView({ events, agents, c
           </div>
           <div className="text-[9px] leading-snug mt-0.5" style={{ color: COLORS.textDim }}>
             {consumption
-              ? `${Math.round(consumption.fill * 100)}% of the way to ${h.compactThreshold ? 'the compaction point' : 'the context window’s edge'}, growing ${formatCount(consumption.rate)} tokens a minute: then it compacts, and the detail is gone`
+              ? `${Math.round(consumption.fill * 100)}% of the way to ${h.compactThreshold ? 'the compaction point' : 'the context window’s edge'}, growing ${formatCount(consumption.rate)} tokens a minute: ${h.isAutoCompactOff ? 'auto-compaction is off, so it won’t make room on its own' : 'then it compacts, and the detail is gone'}`
               : 'Not growing lately, so nothing is falling in'}
           </div>
         </div>
