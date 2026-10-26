@@ -8,7 +8,9 @@ import { createRelay } from './relay'
 import { DEFAULT_RELAY_PORT, DEV_WEB_ORIGIN_PATTERN } from '../extension/src/constants'
 
 async function main() {
-  const workspace = process.argv[2] || process.cwd()
+  // The folder `pnpm run` was started from: pnpm runs the script in the package's own folder and
+  // keeps the caller's in INIT_CWD, which a nested `pnpm run` resets, so `dev` passes it down.
+  const workspace = process.argv[2] || process.env.AGENT_FLOW_WORKSPACE || process.env.INIT_CWD || process.cwd()
 
   console.log('Starting Agent Flow dev relay...\n')
   console.log(`Workspace: ${workspace}`)
