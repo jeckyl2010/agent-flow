@@ -58,7 +58,10 @@ pnpm run setup      # adds Agent Flow's hooks to ~/.claude/settings.json (once)
 pnpm run dev        # the web app on http://localhost:3000, and the event relay
 ```
 
-Start Claude Code in another terminal and the session appears. `pnpm run dev:demo` plays a
+Start Claude Code in another terminal and the session appears. The relay follows the sessions in
+the folder you started `pnpm run dev` from and below it: to follow a project, start it from there
+with `pnpm --dir <agent-flow> dev`, or from a parent folder such as `~/Repos` to follow them all.
+`pnpm run dev:demo` plays a
 demo session with a tour of the views, without Claude Code.
 
 For VS Code (or Cursor, Windsurf), build the extension with `pnpm run build:all`, then
