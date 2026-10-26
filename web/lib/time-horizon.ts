@@ -50,6 +50,8 @@ export interface TimeHorizon {
   context: ContextSample[]
   /** The fill at which Claude Code compacts the main agent's context, as it measured it */
   compactThreshold?: number
+  /** Auto-compaction is off for the main agent: its context fills to the window's edge */
+  isAutoCompactOff?: boolean
   /** The main agent's compactions while Agent Flow watched, in order: each a wormhole on the disk */
   compactions: CompactionMark[]
   /** Each subagent the session sent out, in order */
@@ -157,6 +159,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
   const turnLog: Turn[] = []
   const context: ContextSample[] = []
   let compactThreshold: number | undefined
+  let isAutoCompactOff = false
   const compactions: CompactionMark[] = []
   const subagents: SubagentRun[] = []
   /** The run of each subagent still out, by name */
@@ -306,7 +309,8 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
         waitingPermission = false
         break
       case 'session_measure':
-        compactThreshold = num(p.compactThreshold) || compactThreshold
+        if (typeof p.autoCompact === 'boolean') isAutoCompactOff = !p.autoCompact
+        compactThreshold = isAutoCompactOff ? undefined : num(p.compactThreshold) || compactThreshold
         break
       case 'session_resume':
         resume = {
@@ -365,7 +369,7 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
     }
   }
 
-  return { totals, segments, elapsed: Math.max(0, now - start), start, turns, cache, emissions, turnLog, context, compactThreshold, compactions, subagents, resume }
+  return { totals, segments, elapsed: Math.max(0, now - start), start, turns, cache, emissions, turnLog, context, compactThreshold, isAutoCompactOff, compactions, subagents, resume }
 }
 
 /** `1:02:03`, or `2:03` under an hour */

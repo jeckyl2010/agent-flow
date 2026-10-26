@@ -63,6 +63,16 @@ test('the time horizon fits the context since the last compaction, toward where 
   assert.equal(Math.round(predictConsumption(h.context, h.compactThreshold!, 50)!.eta), 130)
 })
 
+test('where auto-compaction is turned off, the time horizon has no point it compacts at', () => {
+  const ev = (time: number, payload: Record<string, unknown>): SimulationEvent =>
+    ({ time, type: 'session_measure', payload: { agent: 'orchestrator', ...payload } })
+  const on = timeHorizon([ev(1, { compactThreshold: 160_000, autoCompact: true })], 2)
+  assert.deepEqual([on.compactThreshold, on.isAutoCompactOff], [160_000, false])
+  // A threshold measured before it was turned off goes, and a later measure without a word keeps it off
+  const off = timeHorizon([ev(1, { compactThreshold: 160_000 }), ev(2, { autoCompact: false }), ev(3, { compactThreshold: 160_000 })], 4)
+  assert.deepEqual([off.compactThreshold, off.isAutoCompactOff], [undefined, true])
+})
+
 test('a conversation of 200K tokens or more whose turn ended is forecast to compact 54 minutes after it last did anything', () => {
   // Between turns the main agent isn't `idle` (its state stays `thinking`): its turn's end says so
   const main = { id: 'orchestrator', state: 'thinking', tokensUsed: 240_000 } as Agent

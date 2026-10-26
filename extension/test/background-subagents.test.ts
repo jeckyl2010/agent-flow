@@ -14,7 +14,7 @@ import { emitSubagentSpawn, type AgentEvent } from '../src/protocol'
 import { TranscriptParser, parseTaskNotification } from '../src/transcript-parser'
 import { createWatchedSession } from '../src/watched-session'
 import { ORCHESTRATOR_NAME } from '../src/constants'
-import { canIdleCompact, idleCompactionSetting } from '../src/idle-compaction'
+import { canIdleCompact, idleCompactionSetting, isCompactionDisabled } from '../src/idle-compaction'
 import { permissionWhy } from '../src/permission-why'
 
 function setup() {
@@ -129,6 +129,39 @@ describe('idle compaction', () => {
       fs.writeFileSync(path.join(project, '.claude', 'settings.json'), JSON.stringify({ idleCompaction: true }))
       assert.equal(idleCompactionSetting(project, home), true)
       assert.equal(canIdleCompact('cli', project, home), true)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('is off, with auto-compaction, where any settings file’s env sets DISABLE_COMPACT', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-idle-'))
+    const home = path.join(dir, 'home')
+    const project = path.join(dir, 'project')
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
+    fs.mkdirSync(path.join(project, '.claude'), { recursive: true })
+    try {
+      fs.writeFileSync(path.join(project, '.claude', 'settings.local.json'), JSON.stringify({ env: { DISABLE_COMPACT: 'false' } }))
+      assert.equal(isCompactionDisabled(project, home), false)
+
+      // Since 2.1.311 a file can only turn it on: the user's holds over the project's `false`
+      fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ env: { DISABLE_COMPACT: '1' } }))
+      assert.equal(isCompactionDisabled(project, home), true)
+      assert.equal(canIdleCompact('cli', project, home), false)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('tells the web auto-compaction is off where a settings file turns all compaction off', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-idle-'))
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true })
+    fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { DISABLE_COMPACT: 'true' } }))
+    try {
+      const { events, line } = setup()
+      line({ type: 'user', uuid: 'u1', entrypoint: 'cli', cwd: dir, message: { role: 'user', content: 'hi' } })
+      assert.deepEqual(events.filter(e => e.type === 'session_measure').map(e => e.payload),
+        [{ agent: ORCHESTRATOR_NAME, idleCompaction: false, autoCompact: false }])
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }

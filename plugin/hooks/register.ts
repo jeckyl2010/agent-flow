@@ -63,16 +63,22 @@ const teammates = new Set<string>()
 /** agentId → the status last sent for it, from `$.agent.list()` */
 const statuses = new Map<string, string>()
 let statusTimer: { cancel(): void } | undefined
-/** The context window last measured, and the fill at which auto-compaction runs in it (absent when
- *  it's off): the threshold is read again only when the window changes, as on a /model switch */
+/** The context window last measured, the fill at which auto-compaction runs in it (absent when
+ *  it's off), and whether it is on: both are read again only when the window changes, as on a
+ *  /model switch */
 let measuredWindow = 0
 let compactThreshold: number | undefined
+let isAutoCompactOn = true
 /** CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS: the context idle compaction needs, where it isn't 200K */
 let idleCompactMin: number | undefined
 /** Whether idle compaction can run: only in the terminal, and not where settings.json sets
- *  `"idleCompaction": false` (the `/config` row since 2.1.302) */
+ *  `"idleCompaction": false` (the `/config` row since 2.1.302) or DISABLE_COMPACT turns all
+ *  compaction off */
 let isTerminal = true
 let isIdleCompactionOn = true
+/** DISABLE_COMPACT: no compaction at all. A settings file's `env` or a mod's `$.env.set` can only
+ *  turn it on since 2.1.311, so the process's value is the session's */
+let isCompactDisabled = false
 /** Whether the main loop's turn is running, and when its last one ended (0 before any) */
 let isTurnRunning = false
 let lastTurnEnd = 0
@@ -118,8 +124,10 @@ function gatewayHost(url: string | undefined, own: RegExp): string | undefined {
   }
 }
 
+/** An environment switch as Claude Code reads one: set, and not 0 or false */
+const on = (v: string | undefined) => !!v && v !== '0' && v.toLowerCase() !== 'false'
+
 async function readInference($: EngineInterface): Promise<Inference> {
-  const on = (v: string | undefined) => !!v && v !== '0' && v.toLowerCase() !== 'false'
   const via = (gateway: string | undefined) => (gateway ? { gateway } : {})
   if (on(await $.env.get('CLAUDE_CODE_USE_BEDROCK'))) {
     const region = await $.env.get('AWS_REGION') ?? await $.env.get('AWS_DEFAULT_REGION')
@@ -184,6 +192,7 @@ export const register: Register = (on, options) => {
     statusTimer = undefined
     measuredWindow = 0
     compactThreshold = undefined
+    isAutoCompactOn = true
     isTurnRunning = false
     lastTurnEnd = 0
     return next(e)
@@ -350,6 +359,7 @@ export const register: Register = (on, options) => {
       // `summary` counts locally and sends nothing to the API
       const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => undefined)
       compactThreshold = usage?.context.breakdown?.autoCompactThreshold
+      isAutoCompactOn = usage?.context.breakdown?.isAutoCompactEnabled !== false
     }
     // The `/config` row writes settings.json mid-session: read again after each turn
     if (changed.includes('context')) await readIdleCompaction($)
@@ -360,6 +370,7 @@ export const register: Register = (on, options) => {
         ...(context.tokens !== undefined ? { context_tokens: context.tokens } : {}),
         ...(compactThreshold !== undefined ? { compact_threshold: compactThreshold } : {}),
         ...(idleCompactMin !== undefined ? { idle_compact_min_tokens: idleCompactMin } : {}),
+        ...(isAutoCompactOn && !isCompactDisabled ? {} : { auto_compact: false }),
         ...(isIdleCompactionOn ? {} : { idle_compaction: false }),
         rate_limits: rateLimits,
       })
@@ -467,10 +478,12 @@ export const register: Register = (on, options) => {
   })
 }
 
-/** Whether idle compaction can run here: in the terminal, with settings.json not turning it off */
+/** Whether idle compaction can run here: in the terminal, with settings.json not turning it off
+ *  and DISABLE_COMPACT not turning off all compaction */
 async function readIdleCompaction($: EngineInterface): Promise<void> {
   const setting = await $.settings.read({ key: 'idleCompaction' }).catch(() => undefined)
-  isIdleCompactionOn = isTerminal && setting !== false
+  isCompactDisabled = on(await $.env.get('DISABLE_COMPACT').catch(() => undefined))
+  isIdleCompactionOn = isTerminal && setting !== false && !isCompactDisabled
 }
 
 /** A tool the API ran inside a request (since 2.1.290), as a call that started and ended. Both are

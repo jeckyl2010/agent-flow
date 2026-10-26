@@ -60,12 +60,15 @@ export function handleSessionMeasure(
   const rateLimits = Array.isArray(payload.rateLimits)
     ? (payload.rateLimits as RateLimit[]).filter(r => typeof r?.kind === 'string' && typeof r.percentUsed === 'number')
     : main.rateLimits
+  const autoCompact = typeof payload.autoCompact === 'boolean' ? payload.autoCompact : main.autoCompact
   state.agents.set(main.id, {
     ...main,
     ...(window > 0 ? { tokensMax: window } : {}),
-    compactThreshold: optNumber(payload.compactThreshold) ?? main.compactThreshold,
+    // Where auto-compaction is off there is no point it compacts at
+    compactThreshold: autoCompact === false ? undefined : optNumber(payload.compactThreshold) ?? main.compactThreshold,
     idleCompactMin: optNumber(payload.idleCompactMin) ?? main.idleCompactMin,
     idleCompaction: typeof payload.idleCompaction === 'boolean' ? payload.idleCompaction : main.idleCompaction,
+    autoCompact,
     rateLimits,
   })
 }

@@ -157,7 +157,9 @@ function NextJump({ main, running, horizon, idleIn, currentTime }: {
   // Claude Code's own threshold where the bridge mod measured it; the window's edge otherwise
   const target = main.compactThreshold ?? main.tokensMax
   const fill = target > 0 ? Math.min(1, main.tokensUsed / target) : 0
-  const forecast = horizon ? predictConsumption(horizon.context, target, currentTime) : undefined
+  // Where auto-compaction is off, no jump comes on its own: none is forecast
+  const isAutoOff = main.autoCompact === false
+  const forecast = horizon && !isAutoOff ? predictConsumption(horizon.context, target, currentTime) : undefined
   const togo = Math.max(0, target - main.tokensUsed)
 
   return (
@@ -167,6 +169,11 @@ function NextJump({ main, running, horizon, idleIn, currentTime }: {
         <div className="text-[12px] mb-1" style={{ color: COLORS.wormholeRim }}>
           ⟲ Jumping now · {formatDuration(Math.max(0, currentTime - running.startTime))}
           <div className="text-[9px]" style={{ color: COLORS.textDim }}>Claude Code is summarizing the conversation</div>
+        </div>
+      ) : isAutoOff ? (
+        <div className="text-[12px] mb-1" style={{ color: COLORS.textPrimary }}>
+          Auto-compaction is off
+          <span className="text-[9px] ml-2" style={{ color: COLORS.textDim }}>the context fills to the window’s edge</span>
         </div>
       ) : (
         <div className="text-[12px] mb-1" style={{ color: forecast ? COLORS.horizonLight : COLORS.textPrimary }}>
@@ -188,7 +195,9 @@ function NextJump({ main, running, horizon, idleIn, currentTime }: {
         <span>{formatCount(togo)} to go</span>
       </div>
       <div className="text-[9px] mt-0.5" style={{ color: COLORS.textMuted }}>
-        {main.compactThreshold
+        {isAutoOff
+          ? 'Claude Code won’t compact this conversation on its own'
+          : main.compactThreshold
           ? `Compacts at ${formatCount(main.compactThreshold)} of a ${formatCount(main.tokensMax)} window`
           : 'Measured by the Agent Flow bridge mod; until then, the window’s edge'}
       </div>

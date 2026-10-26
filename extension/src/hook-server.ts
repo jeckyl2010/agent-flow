@@ -111,6 +111,8 @@ interface HookPayload {
   idle_compact_min_tokens?: number
   /** False where idle compaction won't run: outside the terminal, or turned off in settings.json */
   idle_compaction?: boolean
+  /** False where auto-compaction won't run: turned off in the settings, or by DISABLE_COMPACT */
+  auto_compact?: boolean
   rate_limits?: Array<{ kind: string; percentUsed: number; resetsAt?: string }>
   // SessionStart (a command hook's, on a resume or fork) and SessionResume (mod): how long the
   // conversation sat, its context, and Claude Code's estimate of re-caching it
@@ -694,6 +696,7 @@ export class HookServer implements vscode.Disposable {
         ...(payload.compact_threshold ? { compactThreshold: payload.compact_threshold } : {}),
         ...(payload.idle_compact_min_tokens ? { idleCompactMin: payload.idle_compact_min_tokens } : {}),
         idleCompaction: payload.idle_compaction !== false,
+        autoCompact: payload.auto_compact !== false,
         rateLimits: (payload.rate_limits ?? []).map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
       },
     }, payload.session_id)
