@@ -3,8 +3,8 @@
 See what your Claude Code (and Codex) agents are doing while they do it: who spawned whom, which
 tools they reach for, what it costs, and where the context goes.
 
-This is a fork of [patoles/agent-flow](https://github.com/patoles/agent-flow) by Simon Patole. It
-follows each Claude Code release closely and adds cost, the prompt cache, compactions, a time
+This started as a fork of [patoles/agent-flow](https://github.com/patoles/agent-flow) by Simon
+Patole, and is now developed on its own. It follows each Claude Code release closely and adds cost, the prompt cache, compactions, a time
 horizon, an environmental footprint and a bridge mod that reports a session from inside Claude
 Code.
 
@@ -47,8 +47,8 @@ and Codex from its rollout files.
 
 ## Run it
 
-The published `npx agent-flow-app` and the Marketplace extension are upstream's builds. For
-this fork's features, run it from source:
+The published `npx agent-flow-app` and the Marketplace extension are Simon Patole's original
+builds. For the features here, run it from source:
 
 ```bash
 git clone https://github.com/jeckyl2010/agent-flow.git
@@ -118,12 +118,15 @@ claude plugin test plugin              # bridge mod
 ## Privacy
 
 Agent Flow reports nothing anywhere: no telemetry, no analytics, no update checks. It reads your
-sessions on your machine and serves them to your browser from `127.0.0.1`. Upstream's opt-in
-telemetry has been removed from this fork.
+sessions on your machine and serves them to your browser from `127.0.0.1`. The original's opt-in
+telemetry has been removed here.
 
 ## Credits and license
 
 Agent Flow was created by [Simon Patole](https://github.com/patoles) for
 [CraftMyGame](https://craftmygame.com) ([demo video](https://www.youtube.com/watch?v=Ud6eDrFN-TA)).
+This repository began as a fork of [patoles/agent-flow](https://github.com/patoles/agent-flow),
+and its history up to the split is his project's. Thanks to Simon for building it and releasing it
+as open source.
 Apache 2.0, see [LICENSE](LICENSE). "Agent Flow" is a trademark of Simon Patole, see
 [TRADEMARK.md](TRADEMARK.md).

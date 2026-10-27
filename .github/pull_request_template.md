@@ -9,4 +9,3 @@
 ## Checklist
 
 - [ ] I have read the [CONTRIBUTING](../CONTRIBUTING.md) guide
-- [ ] I have signed the [CLA](../CLA.md)

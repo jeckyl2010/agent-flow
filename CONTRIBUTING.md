@@ -2,10 +2,6 @@
 
 Thank you for your interest in contributing to Agent Flow! This document provides guidelines for contributing to the project.
 
-## Contributor License Agreement (CLA)
-
-Before your first contribution can be merged, you must sign the [Contributor License Agreement](CLA.md). When you open your first pull request, the CLA Assistant bot will guide you through the process. You only need to sign once.
-
 ## How to Contribute
 
 ### Reporting Bugs
@@ -40,4 +36,4 @@ Be respectful and constructive in all interactions. We are committed to providin
 
 ## License
 
-By contributing to Agent Flow, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE), subject to the terms of the [CLA](CLA.md).
+By contributing to Agent Flow, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
