@@ -3,11 +3,11 @@
   "displayName": "Agent Flow",
   "description": "Real-time visualization of Claude Code and Codex agent orchestration",
   "version": "0.9.1",
-  "publisher": "simon-p",
+  "publisher": "jeckyl2010",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/patoles/agent-flow"
+    "url": "https://github.com/jeckyl2010/agent-flow"
   },
   "icon": "media/icon.png",
   "engines": {
