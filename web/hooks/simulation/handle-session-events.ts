@@ -12,7 +12,7 @@ const MAX_SENT_MESSAGES = 8
 const optNumber = (v: unknown) => (typeof v === 'number' ? v : undefined)
 const optString = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 
-function findMain(agents: Map<string, Agent>): Agent | undefined {
+export function findMain(agents: Map<string, Agent>): Agent | undefined {
   for (const a of agents.values()) if (a.isMain) return a
   return undefined
 }
@@ -71,6 +71,12 @@ export function handleSessionMeasure(
     autoCompact,
     rateLimits,
   })
+  // Nor does a subagent's own (autoCompactWindow): DISABLE_COMPACT holds for them too (2.1.311)
+  if (autoCompact === false) {
+    for (const a of state.agents.values()) {
+      if (!a.isMain && a.compactThreshold) state.agents.set(a.id, { ...a, compactThreshold: undefined })
+    }
+  }
 }
 
 /** A conversation resumed (or forked) from an earlier one: how long it sat, and what its first

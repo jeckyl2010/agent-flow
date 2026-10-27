@@ -9,7 +9,7 @@ import { AGENT_SPAWN_DISTANCE } from '@/lib/canvas-constants'
 import { asWorkflow, latestOfRun, WORKFLOW_STEP_ANGLE } from '@/lib/workflow'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { edgeId, asString, asBoolean } from './types'
-import { addMarker } from './handle-session-events'
+import { addMarker, findMain } from './handle-session-events'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -27,8 +27,10 @@ export function handleAgentSpawn(
   const isFork = payload.fork === true ? true : undefined
   const isBackground = payload.background === true ? true : undefined
   const workflow = asWorkflow(payload.workflow)
-  // Where its agent file says it compacts (autoCompactWindow, 2.1.296+), as the bridge mod read it
-  const compactThreshold = typeof payload.autoCompactWindow === 'number' && payload.autoCompactWindow > 0
+  // Where its agent file says it compacts (autoCompactWindow, 2.1.296+), as the bridge mod read it;
+  // nowhere where the session's auto-compaction is off
+  const isAutoCompactOff = findMain(state.agents)?.autoCompact === false
+  const compactThreshold = !isAutoCompactOff && typeof payload.autoCompactWindow === 'number' && payload.autoCompactWindow > 0
     ? payload.autoCompactWindow
     : undefined
 
@@ -45,7 +47,7 @@ export function handleAgentSpawn(
       ...(runtime ? { runtime } : {}),
       // A workflow run started again reuses its agents' names: they belong to the new run now
       ...(workflow ? { workflow } : {}),
-      ...(compactThreshold ? { compactThreshold } : {}),
+      ...(compactThreshold ? { compactThreshold } : isAutoCompactOff ? { compactThreshold: undefined } : {}),
       ...(isBackground ? { isBackground } : {}),
     })
     return
