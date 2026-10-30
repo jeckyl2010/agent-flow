@@ -156,6 +156,10 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 37.0, type: 'tool_call_start', payload: { agent: 'test-runner', tool: 'Bash', args: 'npm test -- --coverage 2>&1 | tail -30', inputData: { command: 'npm test -- --coverage 2>&1 | tail -30', description: 'Run tests with coverage' } } },
   { time: 41.5, type: 'tool_call_end', payload: { agent: 'test-runner', tool: 'Bash', result: 'FAIL: StripeAdapter > createPayment > should handle API errors\nError: STRIPE_SECRET_KEY is not defined\n\n6 passed, 3 failed', tokenCost: 400, isError: true, errorMessage: 'STRIPE_SECRET_KEY is not defined — 3 tests failed' } },
 
+  // A call auto mode refused before it ran: it did nothing (the bridge mod)
+  { time: 41.6, type: 'tool_call_start', payload: { agent: 'test-runner', tool: 'Bash', args: 'cat ~/.stripe/config.toml', inputData: { command: 'cat ~/.stripe/config.toml', description: 'Look for a Stripe key' } } },
+  { time: 41.8, type: 'tool_call_end', payload: { agent: 'test-runner', tool: 'Bash', result: '[BLOCKED] Auto mode blocked reading credentials outside the project', tokenCost: 0, isError: true, errorMessage: 'Auto mode blocked reading credentials outside the project', blocked: true } },
+
   // Thinking — analyzing error
   { time: 42.0, type: 'message', payload: { agent: 'test-runner', role: 'thinking', content: 'The failing tests are trying to initialize the real Stripe SDK. I need a test setup file that stubs STRIPE_SECRET_KEY and mocks the SDK clients before any test imports run.' } },
   { time: 43.0, type: 'message', payload: { agent: 'test-runner', content: 'Tests need environment variables. Adding test setup with mocks...' } },

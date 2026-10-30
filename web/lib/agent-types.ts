@@ -251,6 +251,9 @@ export interface ToolCallNode {
   errorMessage?: string // error description when state === 'error'
   /** The tool held this input read-only (the bridge mod, 2.1.304+); absent: it couldn't say, or wrote */
   readOnly?: boolean
+  /** Refused before it ran (a deny rule, auto mode, a hook, a dialog's No), so it did nothing (the
+   *  bridge mod) */
+  blocked?: boolean
   x: number
   y: number
   startTime: number

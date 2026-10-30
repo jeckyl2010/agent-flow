@@ -47,6 +47,21 @@ test('a tool call reaches the Agent Flow watching its workspace, start then end'
   expect(posts[1]!.body.tool_response).toEqual('hi')
 })
 
+test('a call refused before it ran is sent as blocked; one that ran and failed is not', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('tool.call', (_$, e) => (e.tool_use_id === 'tu-1'
+    ? { deny: 'Blocked by auto mode' }
+    : { result: {} as never, text: 'exit 1', isError: true }) as never)
+
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf build', tool_use_id: 'tu-1' } as never).catch(() => undefined)
+  await $.tool.call({ tool: 'Bash', command: 'false', tool_use_id: 'tu-2' } as never).catch(() => undefined)
+  await clock.settle()
+
+  const ends = posts.map(p => p.body).filter(b => b.hook_event_name === 'PostToolUseFailure')
+  expect(ends.map(b => [b.tool_use_id, b.blocked])).toEqual([['tu-1', true], ['tu-2', undefined]])
+  expect(ends[0]!.error).toEqual('Blocked by auto mode')
+})
+
 test('a permission request is sent when the dialog shows', async ($, on) => {
   const { clock, posts } = agentFlow(on)
   on('classic.PermissionRequest', () => ({}))
@@ -285,6 +300,32 @@ test('a subagent type whose file sets autoCompactWindow is sent with it; the pro
   expect(starts.map(b => b.auto_compact_window)).toEqual([150_000, undefined, undefined])
 })
 
+for (const [label, version, expected] of [
+  ['lowers CLAUDE_CODE_AUTO_COMPACT_WINDOW from 2.1.312, and never raises it', '2.1.312', [150_000, 200_000]],
+  ['gives way to CLAUDE_CODE_AUTO_COMPACT_WINDOW before 2.1.312', '2.1.311', [undefined, undefined]],
+] as const) {
+  test(`an agent file’s autoCompactWindow ${label}`, async ($, on) => {
+    const { clock, posts } = agentFlow(on, { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '200000' }, {
+      '/home/me/.claude/agents/small.md': '---\nautoCompactWindow: 150000\n---\n',
+      '/home/me/.claude/agents/large.md': '---\nautoCompactWindow: 400000\n---\n',
+    })
+    on('command.register', () => ({ value: undefined }) as never)
+    on('session.start', (_$, e) => ({ cwd: e.cwd }) as never)
+    on('session.version', () => ({ value: { version, base: version } }) as never)
+    on('settings.read', () => ({ value: {} }) as never)
+    let n = 0
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `agent-${++n}` }))
+
+    await $.session.start({ cwd: `${WORKSPACE}/src`, surface: 'terminal', isInteractive: true } as never)
+    await $.agent.spawn({ tool_use_id: 'tu-1', prompt: 'Look', description: 'Small', subagentType: 'small' } as never)
+    await $.agent.spawn({ tool_use_id: 'tu-2', prompt: 'Look', description: 'Large', subagentType: 'large' } as never)
+    await clock.settle()
+
+    const starts = posts.map(p => p.body).filter(b => b.hook_event_name === 'SubagentStart')
+    expect(starts.map(b => b.auto_compact_window)).toEqual([...expected])
+  })
+}
+
 test('a refused turn, a failed subagent and a rate-limit window 90% used each raise one notification', async ($, on) => {
   const { clock } = agentFlow(on)
   const raised = notifications(on)
@@ -421,18 +462,26 @@ test('a resumed conversation is sent with how long it sat and what re-caching it
   })])
 })
 
-for (const [label, surface, setting, expected] of [
-  ['outside the terminal', null, undefined, false],
-  ['where settings.json turns it off', 'terminal', false, false],
-  ['in the terminal, by default', 'terminal', undefined, undefined],
+for (const [label, surface, env, version, settings, expected] of [
+  ['outside the terminal', null, {}, '2.1.314', {}, false],
+  ['where settings.json turns it off', 'terminal', {}, '2.1.314', { idleCompaction: false }, false],
+  ['in the terminal, by default', 'terminal', {}, '2.1.314', {}, undefined],
+  ['in VS Code before 2.1.314', null, { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' }, '2.1.312', {}, false],
+  ['in VS Code from 2.1.314', null, { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' }, '2.1.314', {}, undefined],
+  ['in the desktop app from 2.1.314', null, { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' }, '2.1.315', {}, undefined],
+  ['on Bedrock with the 5-minute cache', 'terminal', { CLAUDE_CODE_USE_BEDROCK: '1' }, '2.1.314', {}, false],
+  ['on Bedrock with ENABLE_PROMPT_CACHING_1H', 'terminal', { CLAUDE_CODE_USE_BEDROCK: '1', ENABLE_PROMPT_CACHING_1H: '1' }, '2.1.314', {}, undefined],
+  ['behind a gateway with promptCacheTtl 1h', 'terminal', { ANTHROPIC_BASE_URL: 'https://llm.corp.example' }, '2.1.314', { promptCacheTtl: '1h' }, undefined],
+  ['on Vertex where FORCE_PROMPT_CACHING_5M wins', 'terminal', { CLAUDE_CODE_USE_VERTEX: '1', FORCE_PROMPT_CACHING_5M: '1' }, '2.1.314', { promptCacheTtl: '1h' }, false],
 ] as const) {
   test(`idle compaction is said off ${label}`, async ($, on) => {
-    const { clock, posts } = agentFlow(on)
+    const { clock, posts } = agentFlow(on, env as Record<string, string>)
     on('command.register', () => ({ value: undefined }) as never)
     on('session.start', (_$, e) => ({ cwd: e.cwd }) as never)
     on('session.measure', (_$, e) => e as never)
+    on('session.version', () => ({ value: { version, base: version } }) as never)
     on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1_000_000 }, rateLimits: [] } }))
-    on('settings.read', () => ({ value: setting === undefined ? {} : { idleCompaction: setting } }) as never)
+    on('settings.read', () => ({ value: settings }) as never)
 
     await $.session.start({ cwd: `${WORKSPACE}/src`, surface, isInteractive: surface === 'terminal' } as never)
     await $.session.measure({ context: { window: 1_000_000, tokens: 300_000 }, rateLimits: [], changed: ['context'] } as never)

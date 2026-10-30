@@ -43,6 +43,7 @@ export interface TranscriptParserDelegate {
 /** What ran the session and where, from the first transcript entry that says */
 function noteSessionSource(line: Record<string, unknown>, session: WatchedSession): void {
   if (!session.entrypoint && typeof line.entrypoint === 'string') session.entrypoint = line.entrypoint
+  if (!session.version && typeof line.version === 'string') session.version = line.version
   if (!session.cwd && typeof line.cwd === 'string') session.cwd = line.cwd
 }
 
@@ -612,7 +613,7 @@ export class TranscriptParser {
       type: 'session_measure',
       payload: {
         agent: ORCHESTRATOR_NAME,
-        idleCompaction: canIdleCompact(session.entrypoint, session.cwd),
+        idleCompaction: canIdleCompact(session.entrypoint, session.version, session.cwd),
         ...(isCompactionDisabled(session.cwd) ? { autoCompact: false } : {}),
       },
     }, sessionId)

@@ -47,6 +47,11 @@ const COMPACT_WINDOW_MAX = 1_000_000
  *  cache lapses. The engine raises it as `auto`: one this long after the last turn ended is that */
 const IDLE_COMPACT_AFTER_MS = 50 * 60_000
 const IDLE_COMPACT_BEFORE_MS = 60 * 60_000
+/** CLAUDE_CODE_ENTRYPOINT of VS Code and the desktop app's Code tab, where idle compaction runs
+ *  too since 2.1.314 */
+const APP_ENTRYPOINTS = new Set(['claude-vscode', 'claude-desktop'])
+const APP_IDLE_COMPACTION_SINCE = '2.1.314'
+const AGENT_WINDOW_LOWERS_SINCE = '2.1.312'
 
 let sessionId: string | undefined
 let cwd = ''
@@ -71,10 +76,11 @@ let compactThreshold: number | undefined
 let isAutoCompactOn = true
 /** CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS: the context idle compaction needs, where it isn't 200K */
 let idleCompactMin: number | undefined
-/** Whether idle compaction can run: only in the terminal, and not where settings.json sets
- *  `"idleCompaction": false` (the `/config` row since 2.1.302) or DISABLE_COMPACT turns all
- *  compaction off */
-let isTerminal = true
+/** Whether idle compaction can run: in the terminal, and since 2.1.314 in VS Code and the desktop
+ *  app's Code tab; on Bedrock, Vertex, Foundry or a gateway only with the one-hour prompt cache on;
+ *  and not where settings.json sets `"idleCompaction": false` (the `/config` row since 2.1.302) or
+ *  DISABLE_COMPACT turns all compaction off */
+let isIdleSurface = true
 let isIdleCompactionOn = true
 /** DISABLE_COMPACT: no compaction at all. A settings file's `env` or a mod's `$.env.set` can only
  *  turn it on since 2.1.311, so the process's value is the session's */
@@ -86,6 +92,10 @@ let lastTurnEnd = 0
 const descriptions = new Map<string, string>()
 /** agent type → the `autoCompactWindow` its agent file sets, or undefined where it sets none */
 const compactWindows = new Map<string, number | undefined>()
+/** CLAUDE_CODE_AUTO_COMPACT_WINDOW, where it is set, and whether an agent file's window can lower
+ *  it (2.1.312+; before, a subagent took the variable's whatever its file set) */
+let envCompactWindow: number | undefined
+let canAgentLowerWindow = true
 /** The rate-limit windows already notified of, each once: kind → when the notified one resets
  *  (ms, NaN where the response gave no reset) */
 const notifiedLimits = new Map<string, number>()
@@ -157,8 +167,11 @@ export const register: Register = (on, options) => {
     inference = await readInference($).catch(() => ({ platform: 'anthropic' as const }))
     const idleMin = Number(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS').catch(() => undefined))
     idleCompactMin = Number.isFinite(idleMin) && idleMin > 0 ? idleMin : undefined
-    // `-p`, the SDK and the hosts on it (VS Code, the desktop app) draw no terminal
-    isTerminal = e.surface === 'terminal'
+    const envWindow = Number(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW').catch(() => undefined))
+    envCompactWindow = Number.isFinite(envWindow) && envWindow > 0 ? envWindow : undefined
+    const { base } = await $.session.version().catch(() => ({ base: undefined }))
+    canAgentLowerWindow = isVersionAtLeast(base, AGENT_WINDOW_LOWERS_SINCE)
+    isIdleSurface = await canIdleCompactHere($, e.surface)
     await readIdleCompaction($)
     send($, { hook_event_name: 'SessionStart' })
     await $.command.register({ name: 'agent-flow', description: 'Shows where the Agent Flow bridge sends this session’s events.' })
@@ -212,7 +225,8 @@ export const register: Register = (on, options) => {
       // Its permission check ran inside the call, so whether it was a read is known by its end
       const ended = { ...call, ...(tool_use_id && readOnly.has(tool_use_id) ? { read_only: true } : {}) }
       if (ran.deny !== undefined) {
-        send($, { hook_event_name: 'PostToolUseFailure', ...ended, error: ran.deny })
+        // Refused before it ran (a deny rule, auto mode, a hook, a dialog's No): it did nothing
+        send($, { hook_event_name: 'PostToolUseFailure', ...ended, error: ran.deny, blocked: true })
       } else if (ran.isError) {
         send($, { hook_event_name: 'PostToolUseFailure', ...ended, error: ran.text ?? '' })
       } else {
@@ -292,7 +306,7 @@ export const register: Register = (on, options) => {
       agentTypes.set(spawned.agentId, e.subagentType)
       descriptions.set(spawned.agentId, e.description)
       if (e.isTeammate) teammates.add(spawned.agentId)
-      const compactWindow = await agentCompactWindow($, e.subagentType)
+      const compactWindow = subagentCompactWindow(await agentCompactWindow($, e.subagentType))
       send($, {
         hook_event_name: 'SubagentStart',
         agent_id: spawned.agentId, agent_type: e.subagentType,
@@ -478,12 +492,46 @@ export const register: Register = (on, options) => {
   })
 }
 
-/** Whether idle compaction can run here: in the terminal, with settings.json not turning it off
- *  and DISABLE_COMPACT not turning off all compaction */
+/** Whether idle compaction can run on this surface: the terminal, or since 2.1.314 VS Code and the
+ *  desktop app's Code tab. Those, like `-p` and the SDK, start with no surface; their entrypoint
+ *  tells them apart */
+async function canIdleCompactHere($: EngineInterface, surface: string | null): Promise<boolean> {
+  if (surface === 'terminal') return true
+  const entrypoint = await $.env.get('CLAUDE_CODE_ENTRYPOINT').catch(() => undefined)
+  if (!entrypoint || !APP_ENTRYPOINTS.has(entrypoint)) return false
+  const { base } = await $.session.version().catch(() => ({ base: undefined }))
+  return isVersionAtLeast(base, APP_IDLE_COMPACTION_SINCE)
+}
+
+/** Whether `version` (`2.1.314`, `2.1.314-dev`) is `min` or later; an unreadable one counts as older */
+function isVersionAtLeast(version: string | undefined, min: string): boolean {
+  const parts = (v: string) => v.split(/[.-]/, 3).map(Number)
+  const have = version ? parts(version) : []
+  if (have.length < 3 || have.some(n => !Number.isFinite(n))) return false
+  const want = parts(min)
+  for (let i = 0; i < 3; i++) if (have[i] !== want[i]) return have[i]! > want[i]!
+  return true
+}
+
+/** Whether requests keep the one-hour prompt cache off Anthropic's own API: `promptCacheTtl` in
+ *  settings, or ENABLE_PROMPT_CACHING_1H, unless FORCE_PROMPT_CACHING_5M holds them to 5 minutes */
+async function hasOneHourCache($: EngineInterface): Promise<boolean> {
+  if (on(await $.env.get('FORCE_PROMPT_CACHING_5M').catch(() => undefined))) return false
+  const ttl = await $.settings.read({ key: 'promptCacheTtl' }).catch(() => undefined)
+  if (ttl !== undefined) return ttl === '1h'
+  return on(await $.env.get('ENABLE_PROMPT_CACHING_1H').catch(() => undefined))
+    || on(await $.env.get('ENABLE_PROMPT_CACHING_1H_BEDROCK').catch(() => undefined))
+}
+
+/** Whether idle compaction can run here: on its surface, off Anthropic's own API only with the
+ *  one-hour cache (2.1.314), with settings.json not turning it off and DISABLE_COMPACT not turning
+ *  off all compaction */
 async function readIdleCompaction($: EngineInterface): Promise<void> {
   const setting = await $.settings.read({ key: 'idleCompaction' }).catch(() => undefined)
   isCompactDisabled = on(await $.env.get('DISABLE_COMPACT').catch(() => undefined))
-  isIdleCompactionOn = isTerminal && setting !== false && !isCompactDisabled
+  const isFirstParty = inference.platform === 'anthropic' && !inference.gateway
+  isIdleCompactionOn = isIdleSurface && setting !== false && !isCompactDisabled
+    && (isFirstParty || await hasOneHourCache($))
 }
 
 /** A tool the API ran inside a request (since 2.1.290), as a call that started and ended. Both are
@@ -586,6 +634,13 @@ async function agentCompactWindow($: EngineInterface, type: string): Promise<num
   }
   compactWindows.set(type, window)
   return window
+}
+
+/** Where a subagent compacts, given its agent file's window: since 2.1.312 that lowers
+ *  CLAUDE_CODE_AUTO_COMPACT_WINDOW and never raises it; before, the variable stood over it */
+function subagentCompactWindow(fileWindow: number | undefined): number | undefined {
+  if (fileWindow === undefined || envCompactWindow === undefined) return fileWindow
+  return canAgentLowerWindow ? Math.min(fileWindow, envCompactWindow) : undefined
 }
 
 /** An agent file's `autoCompactWindow`, where its frontmatter sets one in range */

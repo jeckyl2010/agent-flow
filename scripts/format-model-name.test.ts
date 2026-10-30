@@ -74,3 +74,8 @@ test('Claude 3.x Haiku keeps its 200K window', () => {
   assert.equal(window('claude-3-5-haiku-20241022'), 200_000)
   assert.equal(window('claude-3-haiku-20240307'), 200_000)
 })
+
+test('a model ID spelled with a dot is named as its version', () => {
+  assert.equal(formatModelName('claude-opus-4.8'), 'Opus 4.8')
+  assert.equal(formatModelName('us.anthropic.claude-sonnet-5.5'), 'Sonnet 5.5')
+})

@@ -24,6 +24,17 @@ export function truncatePath(path: string, segments = 3): string {
   return path.split('/').slice(-segments).join('/')
 }
 
+/** A model ID as Claude Code spells it, lower-cased, whatever spelling a gateway gave it:
+ *  `claude-opus-4.8` is `claude-opus-4-8` (2.1.314 reads it so too) */
+export function canonicalModelId(model: string): string {
+  return dashedVersion(model.toLowerCase())
+}
+
+/** `4.8` in a model ID as `4-8` */
+function dashedVersion(model: string): string {
+  return model.replace(/(\d)\.(?=\d)/g, '$1-')
+}
+
 const PROVIDER_PREFIX = /^[a-z]+\.anthropic\./i
 const VERSION_SUFFIX = /-v\d+:\d+$/i
 const DATE_STAMP = /-\d{8}(?=$|-)/
@@ -44,7 +55,8 @@ export function formatModelName(model: string): string {
     .replace(VERSION_SUFFIX, '')
     .replace(DATE_STAMP, '')
 
-  const m = base.match(CLAUDE_NEW)
+  // A gateway may spell Claude's version with a dot (`claude-opus-4.8`); GPT's is always dotted
+  const m = dashedVersion(base).match(CLAUDE_NEW)
   if (m) return claudeLabel(m[1], m[2], m[3])
 
   const legacy = base.match(CLAUDE_LEGACY)

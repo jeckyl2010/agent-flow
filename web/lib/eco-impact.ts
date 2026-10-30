@@ -9,6 +9,7 @@
  */
 import type { Agent } from './agent-types'
 import { inferenceZone } from './inference-zone'
+import { canonicalModelId } from './utils'
 import data from './data/ecologits.json'
 
 export interface Range {
@@ -78,7 +79,7 @@ const hi = (v: ValueOrRange) => (typeof v === 'number' ? v : v.max)
 /** The EcoLogits entry for a model ID: `claude-opus-5-5`, `claude-opus-5-5[1m]`, `claude-haiku-4-5`, … */
 export function findModel(modelId: string | undefined): ModelEntry | undefined {
   if (!modelId) return undefined
-  const id = modelId.toLowerCase().replace(/\[.*\]$/, '')
+  const id = canonicalModelId(modelId).replace(/\[.*\]$/, '')
   const name = ALIASES.get(id) ?? id
   // The longest name the ID contains: `claude-opus-5-5-…` is Opus 5.5, not Opus 5
   let best: ModelEntry | undefined
