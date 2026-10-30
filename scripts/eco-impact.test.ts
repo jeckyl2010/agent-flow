@@ -58,6 +58,8 @@ test('model IDs find the most specific entry', () => {
   assert.equal(findModel('claude-opus-5-5')?.name, 'claude-opus-5-5')
   assert.equal(findModel('claude-opus-5-5[1m]')?.name, 'claude-opus-5-5')
   assert.equal(findModel('claude-opus-5')?.name, 'claude-opus-5')
+  assert.equal(findModel('claude-opus-5.5')?.name, 'claude-opus-5-5') // a gateway's dotted spelling
+  assert.equal(findModel('claude-opus-4.8')?.name, 'claude-opus-4-8')
   assert.equal(findModel('claude-sonnet-4-5-20250929')?.name, 'claude-sonnet-4-5-20250929')
   assert.equal(findModel('claude-haiku-4-5')?.name, 'claude-haiku-4-5-20251001')
   assert.equal(findModel('gpt-5.3-codex'), undefined)

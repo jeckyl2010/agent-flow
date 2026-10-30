@@ -4,12 +4,15 @@
  *
  * Prices are $ per million tokens, Anthropic first-party API rates. Versions within a family
  * differ (Opus 5.5 costs less than Opus 5; cache reads are not one multiple of input), so entries
- * match model IDs version-first. Matched against lower-cased IDs; first match wins.
+ * match model IDs version-first. Matched against canonical IDs (lower-cased, `4.8` read as `4-8`);
+ * first match wins.
  *
  * Some models have a second rate card for long prompts (Haiku 5.5: 5× past 100K tokens). The
  * prompt is the request's whole input, cache reads and writes included; output and the cache's
  * rates follow the card the prompt chose.
  */
+
+import { canonicalModelId } from './utils'
 
 export interface ModelPrice {
   input: number
@@ -66,7 +69,7 @@ const FALLBACK_PRICE: ModelPrice = { input: 3, output: 15, cacheRead: 0.3 }
 /** A model's prices for a prompt of `promptTokens` (the whole input); left out, the standard card */
 export function modelPrice(model?: string, promptTokens = 0): ModelPrice {
   if (model) {
-    const id = model.toLowerCase()
+    const id = canonicalModelId(model)
     for (const { pattern, price, longContext } of MODEL_PRICES) {
       if (!pattern.test(id)) continue
       return longContext && promptTokens > longContext.above ? longContext.price : price

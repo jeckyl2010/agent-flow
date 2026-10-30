@@ -88,3 +88,10 @@ test('a cached prompt costs a read while warm, and a rewrite at its TTL once lap
   assert.ok(Math.abs(five.cold - 0.5) < 1e-12)
   assert.equal(five.warm, hour.warm)
 })
+
+test('a model ID spelled with a dot behind a gateway is priced as its version', () => {
+  assert.deepEqual(modelPrice('claude-opus-4.8'), modelPrice('claude-opus-4-8'))
+  assert.deepEqual(modelPrice('claude-opus-5.5'), { input: 4, output: 20, cacheRead: 0.2 })
+  assert.deepEqual(modelPrice('claude-sonnet-5.5'), { input: 2, output: 10, cacheRead: 0.1 })
+  assert.deepEqual(modelPrice('Claude-Fable-5.1'), { input: 10, output: 50, cacheRead: 0.25 })
+})

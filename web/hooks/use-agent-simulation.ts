@@ -9,6 +9,7 @@ import {
   type TimelineEntry,
 } from '@/lib/agent-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
+import { canonicalModelId } from '@/lib/utils'
 import { TOOL_CARD_W, TOOL_CARD_H, FORCE, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED } from '@/lib/canvas-constants'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation } from 'd3-force'
 
@@ -154,7 +155,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
   const getContextWindowSize = useCallback((modelId?: string): number => {
     if (!modelId) return disable1MContext ? DEFAULT_CONTEXT_SIZE : FALLBACK_CONTEXT_SIZE
-    const id = modelId.toLowerCase()
+    const id = canonicalModelId(modelId)
     for (const { pattern, size } of MODEL_FAMILY_CONTEXT) {
       if (pattern.test(id)) return disable1MContext ? Math.min(size, DEFAULT_CONTEXT_SIZE) : size
     }
