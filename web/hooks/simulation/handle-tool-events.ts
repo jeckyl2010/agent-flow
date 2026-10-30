@@ -111,6 +111,7 @@ export function handleToolCallEnd(
   const isError = asBoolean(payload.isError)
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
   const readOnly = payload.readOnly === true
+  const blocked = isError && payload.blocked === true
   const agent = state.agents.get(agentName)
 
   if (agent) {
@@ -131,6 +132,7 @@ export function handleToolCallEnd(
           ...tc, state: toolState, completeTime: currentTime, result, tokenCost,
           errorMessage: isError ? (errorMessage || result) : undefined,
           ...(readOnly ? { readOnly } : {}),
+          ...(blocked ? { blocked } : {}),
         })
 
         const edgeId = `edge-${id}`
@@ -156,7 +158,7 @@ export function handleToolCallEnd(
         const lastBlock = entry.blocks.at(-1)
         if (lastBlock && !lastBlock.endTime) {
           lastBlock.color = COLORS.error
-          lastBlock.label = `${toolName}: FAILED`
+          lastBlock.label = `${toolName}: ${blocked ? 'BLOCKED' : 'FAILED'}`
         }
       }
       pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: COLORS.thinking }, ctx)

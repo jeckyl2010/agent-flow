@@ -58,6 +58,8 @@ interface HookPayload {
   decider?: string
   /** PostToolUse / PostToolUseFailure (mod only): the tool held this input read-only (2.1.304+) */
   read_only?: boolean
+  /** PostToolUseFailure (mod only): the call was refused before it ran, so it did nothing */
+  blocked?: boolean
   // Notification
   notification_type?: string
   message?: string
@@ -440,7 +442,7 @@ export class HookServer implements vscode.Disposable {
     // Claude Code sends the failure as `error`; `tool_response` is kept for older versions that sent it there.
     const reason = typeof payload.error === 'string' ? payload.error
       : payload.tool_response ? summarizeResult(payload.tool_response) : ''
-    const label = payload.is_interrupt ? '[INTERRUPTED]' : '[FAILED]'
+    const label = payload.is_interrupt ? '[INTERRUPTED]' : payload.blocked ? '[BLOCKED]' : '[FAILED]'
 
     this.emit({
       time: this.elapsedSeconds(payload.session_id),
@@ -454,6 +456,7 @@ export class HookServer implements vscode.Disposable {
         isError: !payload.is_interrupt,
         errorMessage: reason.slice(0, FAILED_RESULT_MAX) || undefined,
         ...(payload.read_only === true ? { readOnly: true } : {}),
+        ...(payload.blocked === true ? { blocked: true } : {}),
       },
     }, payload.session_id)
   }

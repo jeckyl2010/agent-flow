@@ -74,10 +74,16 @@ Some things neither source states. These are the places to look first when Claud
 - **Idle compaction** (2.1.299+): Claude Code records it as `auto`. An `auto` compaction 50 to 60
   minutes after the main loop last finished is taken as idle, in the mod (`register.ts`) and in
   the transcript parser. The Wormhole log's countdown assumes 54 minutes and 200K tokens, or the
-  `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` the mod read. It runs only in the terminal and not where
-  settings.json sets `"idleCompaction": false`: the mod reads the session's surface and the
-  setting from the engine; without the mod, the transcript's `entrypoint` (`cli`) and the user's
-  and project's settings files (`idle-compaction.ts`), not managed settings.
+  `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` the mod read. It runs in the terminal, and from 2.1.314
+  in VS Code and the desktop app's Code tab; on Bedrock, Vertex, Foundry or a gateway only with
+  the one-hour prompt cache on (`promptCacheTtl`, `ENABLE_PROMPT_CACHING_1H`); and not where
+  settings.json sets `"idleCompaction": false`. The mod reads the session's surface,
+  `CLAUDE_CODE_ENTRYPOINT`, the version, the platform and the settings from the engine; without
+  the mod, the transcript's `entrypoint` and `version` and the user's and project's settings files
+  (`idle-compaction.ts`), not managed settings, and not the platform.
+- **A subagent's compaction point**: its agent file's `autoCompactWindow`, which the mod reads
+  from the file. From 2.1.312 it lowers `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and never raises it;
+  before, the variable stood over it.
 - **Background subagents** without the mod: an Agent call answered `Async agent launched` sent
   its agent to the background, and the `<task-notification>` naming that call ends it
   (`transcript-parser.ts`).

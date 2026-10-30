@@ -1,6 +1,7 @@
 /**
  * Whether Claude Code's idle compaction (2.1.299+) can run in a session the transcript alone
- * reports: it runs in the terminal only, and not where settings.json sets `"idleCompaction": false`
+ * reports: it runs in the terminal, and since 2.1.314 in VS Code and the desktop app's Code tab,
+ * and not where settings.json sets `"idleCompaction": false`
  * (the `/config` row since 2.1.302) or `DISABLE_COMPACT` in a settings file's `env` turns off all
  * compaction. The bridge mod reads these from the engine instead.
  */
@@ -11,6 +12,10 @@ import * as path from 'path'
 
 /** The transcript's `entrypoint` of a session run in the terminal */
 const TERMINAL_ENTRYPOINT = 'cli'
+/** The entrypoints of VS Code's and the desktop app's Code tab, where idle compaction runs too
+ *  since 2.1.314 */
+const APP_ENTRYPOINTS = new Set(['claude-vscode', 'claude-desktop'])
+const APP_IDLE_COMPACTION_SINCE = '2.1.314'
 
 /** The settings files that can set it, highest precedence first: the project's local, the
  *  project's, the user's. Managed settings aren't read */
@@ -45,7 +50,20 @@ export function isCompactionDisabled(cwd: string | undefined, home = os.homedir(
   })
 }
 
-/** Whether idle compaction can run in a session of this entrypoint and working directory */
-export function canIdleCompact(entrypoint: string, cwd: string | undefined, home?: string): boolean {
-  return entrypoint === TERMINAL_ENTRYPOINT && idleCompactionSetting(cwd, home) !== false && !isCompactionDisabled(cwd, home)
+/** Whether `version` (`2.1.314`) is `min` or later; an unreadable one counts as older */
+export function isVersionAtLeast(version: string | undefined, min: string): boolean {
+  const parts = (v: string) => v.split(/[.-]/, 3).map(Number)
+  const have = version ? parts(version) : []
+  if (have.length < 3 || have.some(n => !Number.isFinite(n))) return false
+  const want = parts(min)
+  for (let i = 0; i < 3; i++) if (have[i] !== want[i]) return have[i]! > want[i]!
+  return true
+}
+
+/** Whether idle compaction can run in a session of this entrypoint, Claude Code version and
+ *  working directory */
+export function canIdleCompact(entrypoint: string, version: string | undefined, cwd: string | undefined, home?: string): boolean {
+  const isSurface = entrypoint === TERMINAL_ENTRYPOINT
+    || (APP_ENTRYPOINTS.has(entrypoint) && isVersionAtLeast(version, APP_IDLE_COMPACTION_SINCE))
+  return isSurface && idleCompactionSetting(cwd, home) !== false && !isCompactionDisabled(cwd, home)
 }

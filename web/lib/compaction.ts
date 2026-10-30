@@ -57,7 +57,8 @@ const ACTIVITY = new Set([
 
 /** Seconds until idle compaction would fold the main conversation if it stays idle, or undefined
  *  where it won't: its turn hasn't ended, or the context is under the size it needs. Claude Code
- *  does this in the terminal only, and not where settings.json sets `"idleCompaction": false`: the
+ *  does this in the terminal (and from 2.1.314 in VS Code and the desktop app), off Anthropic's API
+ *  only with the one-hour cache, and not where settings.json sets `"idleCompaction": false`: the
  *  bridge mod and the transcript's `entrypoint` say so (`idleCompaction`) */
 export function idleCompactionIn(main: Agent, events: readonly SimulationEvent[], currentTime: number): number | undefined {
   if (main.idleCompaction === false) return undefined

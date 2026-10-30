@@ -15,6 +15,7 @@ interface ToolDetailPopupProps {
     tokenCost?: number
     inputData?: Record<string, unknown>
     readOnly?: boolean
+    blocked?: boolean
   }
   position: { x: number; y: number }
   onClose: () => void
@@ -35,6 +36,12 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
         <span className="text-[9px] font-mono capitalize" style={{ color: stateColor + '90' }}>
           {tool.state}
         </span>
+        {tool.blocked && (
+          <span className="text-[8px] font-mono px-1 rounded" title="Refused before it ran: a deny rule, auto mode, a hook or a dialog’s No. It did nothing"
+            style={{ color: COLORS.error, border: `1px solid ${COLORS.error}40` }}>
+            didn’t run
+          </span>
+        )}
         {tool.readOnly && (
           <span className="text-[8px] font-mono px-1 rounded" title="Its tool held this input read-only (the bridge mod)"
             style={{ color: COLORS.textDim, border: `1px solid ${COLORS.holoBorder12}` }}>

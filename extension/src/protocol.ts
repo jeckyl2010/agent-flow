@@ -263,9 +263,11 @@ export interface WatchedSession {
   requestShapes: Map<string, number>
   /** When the main conversation's latest user or assistant entry was written, ISO 8601 */
   lastEntryAt?: string
-  /** What ran the session (`cli` in the terminal, `sdk-ts`, `claude-vscode`...) and in which
-   *  directory, as its transcript's entries say: whether idle compaction can run there */
+  /** What ran the session (`cli` in the terminal, `sdk-ts`, `claude-vscode`...), on which Claude
+   *  Code and in which directory, as its transcript's entries say: whether idle compaction can run
+   *  there */
   entrypoint?: string
+  version?: string
   cwd?: string
   /** The web was told idle compaction won't run, or that it can: told once */
   isIdleCompactionTold?: boolean

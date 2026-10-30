@@ -80,7 +80,7 @@ and transcripts only let Agent Flow guess. With it you get:
 - agent teams, workflow runs, resumed subagents, forks, background agents, messages between
   agents, and the advisor's calls
 - why a permission asks (the rule, hook or setting, and whether only you can approve it), which
-  calls were read-only, and why a turn was refused
+  calls were read-only, which were blocked before they ran, and why a turn was refused
 - what each compaction's summary cost, and what a resumed conversation's cache cost to rebuild
 - a notification for a refused turn, a failed subagent, or a rate limit 90% used (turn it off
   with the mod's **Notifications** option in `/config`)

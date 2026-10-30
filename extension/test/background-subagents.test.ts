@@ -14,7 +14,7 @@ import { emitSubagentSpawn, type AgentEvent } from '../src/protocol'
 import { TranscriptParser, parseTaskNotification } from '../src/transcript-parser'
 import { createWatchedSession } from '../src/watched-session'
 import { ORCHESTRATOR_NAME } from '../src/constants'
-import { canIdleCompact, idleCompactionSetting, isCompactionDisabled } from '../src/idle-compaction'
+import { canIdleCompact, idleCompactionSetting, isCompactionDisabled, isVersionAtLeast } from '../src/idle-compaction'
 import { permissionWhy } from '../src/permission-why'
 
 function setup() {
@@ -104,13 +104,20 @@ describe('subagents in the background', () => {
 })
 
 describe('idle compaction', () => {
-  it('a session not run in the terminal is told it gets none, once', () => {
+  it('a session in VS Code before 2.1.314 is told it gets none, once', () => {
     const { events, line } = setup()
-    const said = (text: string) => ({ type: 'user', uuid: text, entrypoint: 'claude-vscode', cwd: '/nowhere', message: { role: 'user', content: text } })
+    const said = (text: string) => ({ type: 'user', uuid: text, entrypoint: 'claude-vscode', version: '2.1.312', cwd: '/nowhere', message: { role: 'user', content: text } })
     line(said('first'))
     line(said('second'))
     assert.deepEqual(events.filter(e => e.type === 'session_measure').map(e => e.payload),
       [{ agent: ORCHESTRATOR_NAME, idleCompaction: false }])
+  })
+
+  it('a session in VS Code on 2.1.314 is told it can', () => {
+    const { events, line } = setup()
+    line({ type: 'user', uuid: 'u1', entrypoint: 'claude-vscode', version: '2.1.314', cwd: '/nowhere', message: { role: 'user', content: 'hi' } })
+    assert.deepEqual(events.filter(e => e.type === 'session_measure').map(e => e.payload),
+      [{ agent: ORCHESTRATOR_NAME, idleCompaction: true }])
   })
 
   it('runs in the terminal unless a settings file turns it off, the project’s over the user’s', () => {
@@ -120,18 +127,39 @@ describe('idle compaction', () => {
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
     fs.mkdirSync(path.join(project, '.claude'), { recursive: true })
     try {
-      assert.equal(canIdleCompact('cli', project, home), true)
-      assert.equal(canIdleCompact('sdk-ts', project, home), false)
+      assert.equal(canIdleCompact('cli', '2.1.314', project, home), true)
+      assert.equal(canIdleCompact('sdk-ts', '2.1.314', project, home), false)
 
       fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ idleCompaction: false }))
-      assert.equal(canIdleCompact('cli', project, home), false)
+      assert.equal(canIdleCompact('cli', '2.1.314', project, home), false)
 
       fs.writeFileSync(path.join(project, '.claude', 'settings.json'), JSON.stringify({ idleCompaction: true }))
       assert.equal(idleCompactionSetting(project, home), true)
-      assert.equal(canIdleCompact('cli', project, home), true)
+      assert.equal(canIdleCompact('cli', '2.1.314', project, home), true)
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('runs in VS Code and the desktop app’s Code tab from 2.1.314', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-idle-'))
+    try {
+      assert.equal(canIdleCompact('claude-vscode', '2.1.314', dir, dir), true)
+      assert.equal(canIdleCompact('claude-desktop', '2.1.320', dir, dir), true)
+      assert.equal(canIdleCompact('claude-vscode', '2.1.312', dir, dir), false)
+      assert.equal(canIdleCompact('claude-desktop', undefined, dir, dir), false)
+      assert.equal(canIdleCompact('sdk-py', '2.1.314', dir, dir), false)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('compares Claude Code versions', () => {
+    assert.equal(isVersionAtLeast('2.1.314', '2.1.314'), true)
+    assert.equal(isVersionAtLeast('2.2.0', '2.1.314'), true)
+    assert.equal(isVersionAtLeast('2.1.99', '2.1.314'), false)
+    assert.equal(isVersionAtLeast('2.1.315-dev', '2.1.314'), true)
+    assert.equal(isVersionAtLeast('garbage', '2.1.314'), false)
   })
 
   it('is off, with auto-compaction, where any settings file’s env sets DISABLE_COMPACT', () => {
@@ -147,7 +175,7 @@ describe('idle compaction', () => {
       // Since 2.1.311 a file can only turn it on: the user's holds over the project's `false`
       fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ env: { DISABLE_COMPACT: '1' } }))
       assert.equal(isCompactionDisabled(project, home), true)
-      assert.equal(canIdleCompact('cli', project, home), false)
+      assert.equal(canIdleCompact('cli', '2.1.314', project, home), false)
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
