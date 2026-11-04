@@ -126,6 +126,8 @@ function cleanupFaded(
 }
 
 function animateDiscoveries(discoveries: SimulationState['discoveries'], deltaTime: number, newTime: number): SimulationState['discoveries'] {
+  // None in flight: the same list, so what the canvas keeps by it stays valid
+  if (discoveries.length === 0) return discoveries
   return discoveries
     .map(d => {
       const age = newTime - d.timestamp
@@ -142,6 +144,8 @@ function animateDiscoveries(discoveries: SimulationState['discoveries'], deltaTi
 }
 
 function animateParticles(particles: SimulationState['particles'], deltaTime: number, speed: number): SimulationState['particles'] {
+  // None in flight: the same list, so the canvas's edge lookups made from it are reused
+  if (particles.length === 0) return particles
   const particleSpeed = ANIM_SPEED.particleSpeed * speed
   return particles.map(p => {
     if (p.type === 'return' || p.type === 'tool_return')

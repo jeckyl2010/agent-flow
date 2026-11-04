@@ -52,6 +52,26 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const uiStaleRef = useRef(false)
 
   // ─── d3-force simulation ─────────────────────────────────────────────────
+  // Stepped by hand (sync and the animation loop call tick()), never by d3's own timer, so its
+  // 'tick' event never fires: the layout's positions are copied to the agents after each step
+  const applyLayout = useCallback(() => {
+    const sim = forceSimRef.current
+    if (!sim) return
+    const prev = frameRef.current
+    let newAgents: Map<string, Agent> | undefined
+    for (const node of sim.nodes()) {
+      const agent = prev.agents.get(node.id)
+      if (agent && !agent.pinned && node.x !== undefined && node.y !== undefined) {
+        if (Math.abs(agent.x - node.x) > 0.1 || Math.abs(agent.y - node.y) > 0.1) {
+          newAgents ??= new Map(prev.agents)
+          newAgents.set(node.id, { ...agent, x: node.x, y: node.y })
+        }
+      }
+    }
+    // Only positions change: written to frameRef, no React render
+    if (newAgents) frameRef.current = { ...prev, agents: newAgents }
+  }, [])
+
   useEffect(() => {
     const sim = forceSimulation<ForceNode, ForceLink>([])
       .force('charge', forceManyBody().strength(FORCE.chargeStrength))
@@ -60,26 +80,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       .force('link', forceLink<ForceNode, ForceLink>([]).id(d => d.id).distance(FORCE.linkDistance).strength(FORCE.linkStrength))
       .alphaDecay(FORCE.alphaDecay)
       .velocityDecay(FORCE.velocityDecay)
-      .on('tick', () => {
-        // Force tick only updates positions — write to frameRef, no React render
-        const prev = frameRef.current
-        const newAgents = new Map(prev.agents)
-        let changed = false
-        for (const node of sim.nodes()) {
-          const agent = newAgents.get(node.id)
-          if (agent && !agent.pinned && node.x !== undefined && node.y !== undefined) {
-            if (Math.abs(agent.x - node.x) > 0.1 || Math.abs(agent.y - node.y) > 0.1) {
-              newAgents.set(node.id, { ...agent, x: node.x, y: node.y })
-              changed = true
-            }
-          }
-        }
-        if (changed) {
-          frameRef.current = { ...prev, agents: newAgents }
-        }
-      })
-
-    sim.stop()
+      .stop()
     forceSimRef.current = sim
     return () => { sim.stop(); forceSimRef.current = null }
   }, [])
@@ -104,10 +105,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     sim.nodes(nodes)
     const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
     if (linkForce) linkForce.links(links)
-    sim.alpha(0.3).restart()
-    for (let i = 0; i < 15; i++) sim.tick()
-    sim.stop()
-  }, [])
+    sim.alpha(0.3)
+    sim.tick(15)
+    applyLayout()
+  }, [applyLayout])
 
   // ─── Tool slot placement ─────────────────────────────────────────────────
   const findToolSlot = useCallback((
@@ -267,8 +268,12 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // Write to frameRef (canvas reads this every frame)
     frameRef.current = result
 
-    // Force tick — updates agent positions in frameRef
-    if (forceSimRef.current) forceSimRef.current.tick()
+    // A step of the layout while it's still settling, its positions into frameRef
+    const layout = forceSimRef.current
+    if (layout && layout.alpha() >= layout.alphaMin()) {
+      layout.tick()
+      applyLayout()
+    }
 
     // Throttle React re-renders — UI updates at ~4/sec, canvas stays smooth via frameRef. New
     // events, events replayed from the log (review playback) and the clock's seconds all show in

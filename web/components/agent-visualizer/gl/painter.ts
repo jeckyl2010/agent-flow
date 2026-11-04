@@ -149,6 +149,13 @@ export class Painter {
   private scratch = document.createElement('canvas')
   private scratchCtx = this.scratch.getContext('2d')!
   private atlasDpr = 0
+  /**
+   * Pictures placed in the atlas this frame, still to be drawn into it: drawn as the frame ends,
+   * each shelf's together on the scratch canvas and sent up in one upload. An upload each was most
+   * of a frame's time when many labels were new at once (a zoom step, the atlas starting again):
+   * Safari reads the source canvas back for every upload, about half a millisecond each
+   */
+  private pending: Array<{ x: number; y: number; w: number; h: number; res: number; draw: (g: CanvasRenderingContext2D) => void }> = []
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
@@ -212,7 +219,45 @@ export class Painter {
     gl.disable(gl.DEPTH_TEST)
     this.gl = gl
     // The atlas is empty again: every string is drawn into it anew
+    this.clearAtlas()
+  }
+
+  /** Every picture forgotten, to be drawn into the atlas again as it's next needed */
+  private clearAtlas() {
     this.glyphs.clear(); this.shelfX = this.shelfY = this.shelfH = 0
+    this.pending = []
+  }
+
+  /**
+   * This frame's new pictures, drawn into the atlas: those on one shelf lie side by side, so each
+   * shelf's are drawn together on the scratch canvas and uploaded at once (one or two a frame)
+   */
+  private uploadAtlas(gl: WebGL2RenderingContext) {
+    const pending = this.pending
+    if (pending.length === 0) return
+    this.pending = []
+    gl.bindTexture(gl.TEXTURE_2D, this.atlasTex)
+    const g = this.scratchCtx
+    for (let i = 0; i < pending.length;) {
+      let j = i
+      while (j < pending.length && pending[j].y === pending[i].y) j++
+      const x0 = pending[i].x, y = pending[i].y
+      const last = pending[j - 1]
+      let h = 0
+      for (let k = i; k < j; k++) h = Math.max(h, pending[k].h)
+      // Resizing clears it; the gaps between pictures stay empty, as they are in the atlas
+      this.scratch.width = last.x + last.w - x0; this.scratch.height = h
+      for (let k = i; k < j; k++) {
+        const p = pending[k]
+        g.save()
+        g.beginPath(); g.rect(p.x - x0, 0, p.w, p.h); g.clip()
+        g.setTransform(p.res, 0, 0, p.res, p.x - x0, 0)
+        p.draw(g)
+        g.restore()
+      }
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y, gl.RGBA, gl.UNSIGNED_BYTE, this.scratch)
+      i = j
+    }
   }
 
   dispose() {
@@ -230,7 +275,7 @@ export class Painter {
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h }
     if (dpr !== this.atlasDpr || this.shelfY > ATLAS_H * 0.85) {
       // Labels that change (counting down) fill the atlas over time: start it again
-      this.glyphs.clear(); this.shelfX = this.shelfY = this.shelfH = 0; this.atlasDpr = dpr
+      this.clearAtlas(); this.atlasDpr = dpr
     }
     this.nv = 0; this.ni = 0
     this.resW = width; this.resH = height
@@ -255,6 +300,7 @@ export class Painter {
     gl.uniform2f(this.uRes, this.resW, this.resH)
     gl.uniform1f(this.uDpr, this.dpr)
     gl.activeTexture(gl.TEXTURE0)
+    this.uploadAtlas(gl)
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex)
     const r = this.ring[this.ringAt = (this.ringAt + 1) % this.ring.length]
     gl.bindBuffer(gl.ARRAY_BUFFER, r.vbo)
@@ -630,12 +676,8 @@ void main() { color = vec4(texture(src, uv).rgb * k, 0.0); }`)
     // Entries kept a few texels apart, so filtering never reaches into a neighbor
     if (this.shelfX + dw > ATLAS_W) { this.shelfX = 0; this.shelfY += this.shelfH + 4; this.shelfH = 0 }
     if (this.shelfY + dh > ATLAS_H) return undefined
-    const g = this.scratchCtx
-    this.scratch.width = dw; this.scratch.height = dh
-    g.setTransform(res, 0, 0, res, 0, 0)
-    draw(g)
-    gl.bindTexture(gl.TEXTURE_2D, this.atlasTex)
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, this.shelfX, this.shelfY, gl.RGBA, gl.UNSIGNED_BYTE, this.scratch)
+    // Drawn into its place as the frame ends, with this frame's other new pictures (uploadAtlas)
+    this.pending.push({ x: this.shelfX, y: this.shelfY, w: dw, h: dh, res, draw })
     const sp: Sprite = {
       u0: this.shelfX / ATLAS_W, v0: this.shelfY / ATLAS_H, u1: (this.shelfX + dw) / ATLAS_W, v1: (this.shelfY + dh) / ATLAS_H,
       w: dw / res, h: dh / res, ax, ay,
