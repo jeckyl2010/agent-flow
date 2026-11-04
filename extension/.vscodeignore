@@ -6,4 +6,3 @@ esbuild.js
 tsconfig.json
 **/*.ts
 !dist/**
-.next/**

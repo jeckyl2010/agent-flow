@@ -1,7 +1,7 @@
 import * as http from 'http'
 import * as vscode from 'vscode'
-import { AgentEvent, emitSubagentSpawn, isFastUsage, type ModelUsage, type UsageTotals } from './protocol'
-import { addUsage, oneHourWrites, totalsPayload } from './transcript-usage'
+import { AgentEvent, emitSubagentSpawn, type ModelUsage, type UsageTotals } from './protocol'
+import { addUsage, toModelUsage, totalsPayload } from './transcript-usage'
 import {
   ORCHESTRATOR_NAME, PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX, resolveSubagentChildName, workflowAgentName,
   SESSION_ID_DISPLAY, FAILED_RESULT_MAX, HOOK_MAX_BODY_SIZE,
@@ -647,14 +647,7 @@ export class HookServer implements vscode.Disposable {
 
     const usage = payload.usage
     if (!usage) return
-    const step: ModelUsage = {
-      input_tokens: usage.input_tokens,
-      output_tokens: usage.output_tokens,
-      cache_read_input_tokens: usage.cache_read_input_tokens,
-      cache_creation_input_tokens: usage.cache_creation_input_tokens,
-      cache_creation_1h_input_tokens: oneHourWrites(usage as unknown as Record<string, unknown>),
-      ...(isFastUsage(usage) ? { speed: 'fast' as const } : {}),
-    }
+    const step = toModelUsage(usage)
     const totals = totalsPayload(addUsage(state.usageTotals, agent, payload.model || 'unknown', step))
     // One model request as the API reported it: the UI draws its heartbeat and prices the totals
     this.emit({

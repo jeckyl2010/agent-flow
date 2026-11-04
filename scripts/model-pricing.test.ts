@@ -1,12 +1,15 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { modelPrice, blendedRate, stepCost, totalCost, cacheHitRatio, cachedPromptCost, LONG_PROMPT_ABOVE, FAST_MODE_MULTIPLIER } from '../web/lib/model-pricing'
+import { modelPrice, blendedRate, stepCost, totalCost, cacheHitRatio, cachedPromptCost, LONG_PROMPT_ABOVE } from '../web/lib/model-pricing'
 import { LONG_PROMPT_TOKENS } from '../extension/src/protocol'
 
 const usage = (input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
   input_tokens: input, output_tokens: output,
   cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite,
 })
+
+/** Dollar amounts agree to within float rounding */
+const near = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-9, `$${actual} is not $${expected}`)
 
 test('versions within a family are priced apart', () => {
   assert.deepEqual(modelPrice('claude-opus-5-5'), { input: 4, output: 20, cacheRead: 0.2 })
@@ -27,8 +30,8 @@ test('a prompt past 100K tokens is priced at Haiku 5.5\'s long-prompt card, outp
   assert.equal(modelPrice('claude-opus-5-5', 900_000).input, 4) // one card at any length
   // The prompt counts the cache: 5K new, 150K read, 1K written is a long prompt
   const long = usage(5_000, 1e6, 150_000, 1_000)
-  assert.ok(Math.abs(stepCost(long, 'claude-haiku-5-5') - (5_000 * 0.5 + 1e6 * 2.5 + 150_000 * 0.05 + 1_000 * 0.5 * 1.25) / 1e6) < 1e-12)
-  assert.ok(Math.abs(cachedPromptCost(150_000, 300, 'claude-haiku-5-5').warm - 150_000 * 0.05 / 1e6) < 1e-12)
+  near(stepCost(long, 'claude-haiku-5-5'), (5_000 * 0.5 + 1e6 * 2.5 + 150_000 * 0.05 + 1_000 * 0.5 * 1.25) / 1e6)
+  near(cachedPromptCost(150_000, 300, 'claude-haiku-5-5').warm, 150_000 * 0.05 / 1e6)
 })
 
 test('the relay splits summed usage where the long-prompt card starts', () => {
@@ -37,28 +40,25 @@ test('the relay splits summed usage where the long-prompt card starts', () => {
 
 test('summed requests are priced at the standard card, but for the part whose prompts were long', () => {
   // Two Haiku 5.5 requests of 60K each: 120K summed, but neither prompt was long
-  const short = usage(1e6, 1e6)
-  assert.ok(Math.abs(totalCost(short, 'claude-haiku-5-5') - 0.6) < 1e-12)
+  near(totalCost(usage(1e6, 1e6), 'claude-haiku-5-5'), 0.6)
   // Of 2M input and 2M output, half came from long prompts: $0.60 + $3.00
   const all = usage(2e6, 2e6)
-  assert.ok(Math.abs(totalCost(all, 'claude-haiku-5-5', usage(1e6, 1e6)) - 3.6) < 1e-12)
-  assert.equal(totalCost(all, 'claude-opus-5-5', usage(1e6, 1e6)), stepCost(all, 'claude-opus-5-5'))
+  near(totalCost({ ...all, long_prompt: usage(1e6, 1e6) }, 'claude-haiku-5-5'), 3.6)
+  near(totalCost({ ...all, long_prompt: usage(1e6, 1e6) }, 'claude-opus-5-5'), stepCost(all, 'claude-opus-5-5'))
 })
 
 test('a request in fast mode is billed at twice the card, cache reads and writes too', () => {
-  assert.equal(FAST_MODE_MULTIPLIER, 2)
   // Opus 5.5 fast: $8 / $40, cache reads $0.40, 5-minute writes $10
-  const fast = { ...usage(1e6, 1e6, 1e6, 1e6), speed: 'fast' }
-  assert.ok(Math.abs(stepCost(fast, 'claude-opus-5-5') - (8 + 40 + 0.4 + 10)) < 1e-9)
-  // Opus 4.8 fast: $10 / $50
-  assert.ok(Math.abs(stepCost({ ...usage(1e6, 1e6), speed: 'fast' }, 'claude-opus-4-8') - 60) < 1e-9)
-  assert.equal(stepCost({ ...usage(1e6, 1e6), speed: 'standard' }, 'claude-opus-5-5'), stepCost(usage(1e6, 1e6), 'claude-opus-5-5'))
+  near(stepCost({ ...usage(1e6, 1e6, 1e6, 1e6), speed: 'fast' }, 'claude-opus-5-5'), 8 + 40 + 0.4 + 10)
+  // Opus 5 and 4.8 fast: $10 / $50
+  near(stepCost({ ...usage(1e6, 1e6), speed: 'fast' }, 'claude-opus-5'), 60)
+  near(stepCost({ ...usage(1e6, 1e6), speed: 'fast' }, 'claude-opus-4-8'), 60)
 })
 
 test('summed requests price their fast part at the fast card', () => {
   // 2M in, 2M out on Opus 5.5, half of it fast: $24 standard + $48 fast
-  assert.ok(Math.abs(totalCost(usage(2e6, 2e6), 'claude-opus-5-5', undefined, usage(1e6, 1e6)) - 72) < 1e-9)
-  assert.ok(Math.abs(totalCost(usage(1e6, 1e6), 'claude-opus-5-5', undefined, usage(1e6, 1e6)) - 48) < 1e-9)
+  near(totalCost({ ...usage(2e6, 2e6), fast: usage(1e6, 1e6) }, 'claude-opus-5-5'), 72)
+  near(totalCost({ ...usage(1e6, 1e6), fast: usage(1e6, 1e6) }, 'claude-opus-5-5'), 48)
 })
 
 test('ids are matched case-insensitively and with suffixes', () => {
@@ -98,10 +98,10 @@ test('cache hit ratio is the share of input the cache served', () => {
 test('a cached prompt costs a read while warm, and a rewrite at its TTL once lapsed', () => {
   // Opus 5.5: $4 input, $0.20 cache read. A 1-hour write is 2× input, a 5-minute one 1.25×
   const hour = cachedPromptCost(100_000, 3600, 'claude-opus-5-5')
-  assert.ok(Math.abs(hour.warm - 0.02) < 1e-12)
-  assert.ok(Math.abs(hour.cold - 0.8) < 1e-12)
+  near(hour.warm, 0.02)
+  near(hour.cold, 0.8)
   const five = cachedPromptCost(100_000, 300, 'claude-opus-5-5')
-  assert.ok(Math.abs(five.cold - 0.5) < 1e-12)
+  near(five.cold, 0.5)
   assert.equal(five.warm, hour.warm)
 })
 

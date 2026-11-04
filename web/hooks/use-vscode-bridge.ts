@@ -1,5 +1,3 @@
-'use client'
-
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo } from '@/lib/vscode-bridge'
 import { SimulationEvent } from '@/lib/agent-types'
@@ -47,7 +45,7 @@ export function useVSCodeBridge(): BridgeHookResult {
   const [isVSCode, setIsVSCode] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected')
   const [useMockData, setUseMockData] = useState(
-    process.env.NEXT_PUBLIC_DEMO !== '0'
+    import.meta.env.AGENT_FLOW_DEMO !== '0'
   )
   const [disable1MContext, setDisable1MContext] = useState(false)
   const pendingEventsRef = useRef<SimulationEvent[]>([])
@@ -72,11 +70,10 @@ export function useVSCodeBridge(): BridgeHookResult {
     // Skip in VS Code — extension handles events via postMessage
     if (bridge.isVSCode) return
 
-    // Connect to relay in dev mode or standalone CLI mode
-    const isStandalone = process.env.AGENT_FLOW_STANDALONE === '1'
-    if (!isStandalone && (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_DEMO !== '0')) return
+    // Follow a relay in the desktop app and in `pnpm run dev`, not in the demo
+    if (import.meta.env.AGENT_FLOW_DEMO !== '0') return
 
-    const relayPort = process.env.NEXT_PUBLIC_RELAY_PORT || ''
+    const relayPort = import.meta.env.AGENT_FLOW_RELAY_PORT
     const es = new EventSource(relayPort ? `http://127.0.0.1:${relayPort}/events` : '/events')
 
     es.onopen = () => {

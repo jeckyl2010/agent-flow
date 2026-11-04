@@ -221,8 +221,7 @@ export interface UsageTotals {
   /** Usage summed per model, with how many requests each made: the environmental impacts count
    *  a start-up cost per request. `long_prompt` is the part of it whose prompts were longer than
    *  LONG_PROMPT_TOKENS, absent until one is; `fast` the part that ran in fast mode, absent until
-   *  one does. A fast request is counted in `fast` alone, not in `long_prompt`: no model has both
-   *  a fast mode and a long-prompt card */
+   *  one does (transcript-usage.ts pricedPart puts a request in one part at most) */
   byModel: Map<string, ModelUsage & { requests: number; long_prompt?: ModelUsage; fast?: ModelUsage }>
 }
 

@@ -1,5 +1,3 @@
-'use client'
-
 import { useRef } from 'react'
 import { Z, TIMING } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'

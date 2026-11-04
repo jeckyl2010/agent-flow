@@ -40,12 +40,12 @@ export const BRIDGE_INIT_MAX_RETRIES = 50
 export const BRIDGE_INIT_RETRY_MS = 100
 
 /** Default dev server port */
-export const DEFAULT_DEV_PORT = 3002
+export const DEFAULT_DEV_PORT = 3000
 
 /** Default SSE relay port (used by dev relay, standalone app, and webview build) */
 export const DEFAULT_RELAY_PORT = 3001
 
-/** Accept CORS requests from any localhost origin during dev — Next.js falls
+/** Accept CORS requests from any localhost origin during dev — the dev server falls
  *  back to a higher port when 3000 is taken, so a single hard-coded value
  *  would silently break dev. The relay binds to 127.0.0.1 already, so this
  *  pattern is safe (no external origin can reach it). */

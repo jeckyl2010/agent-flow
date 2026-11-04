@@ -1,5 +1,3 @@
-'use client'
-
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
