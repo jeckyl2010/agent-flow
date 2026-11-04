@@ -89,6 +89,11 @@ Some things neither source states. These are the places to look first when Claud
   (`transcript-parser.ts`).
 - **The system prompt's size**: estimated from the text of the `api-request-shape` records
   (2.1.300+), a flat 5,000 tokens before them.
+- **Fast mode's price**: a request whose usage says `speed: "fast"` is priced at twice its model's
+  card (`model-pricing.ts`), its usage kept apart in the totals as a long prompt's is. The
+  transcript records the speed; the mod API's `TurnUsage` doesn't declare it, so a mod-fed
+  subagent is priced fast only where the engine passes the API's field on. The session's total
+  comes from Claude Code's own cost, which counts it either way.
 - **Token counts of messages and tool results**: estimated from their text (`token-estimator.ts`).
 - **Subagent names** without the mod: from the Agent call's description, or the transcript's
   `.meta.json` sidecar.

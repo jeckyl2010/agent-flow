@@ -201,6 +201,14 @@ export interface ModelUsage {
   /** The part of cache_creation_input_tokens written with the 1-hour TTL, which costs more than
    *  the default 5 minutes; absent when the source doesn't break writes down by TTL */
   cache_creation_1h_input_tokens?: number
+  /** `fast` for a request that ran in fast mode, billed at a premium (Opus 5.5, Opus 5 and
+   *  Opus 4.8, on Anthropic's API); absent at the standard speed */
+  speed?: 'fast'
+}
+
+/** Whether the API's usage says the request ran in fast mode (`usage.speed`) */
+export function isFastUsage(usage: unknown): boolean {
+  return usage !== null && typeof usage === 'object' && (usage as { speed?: unknown }).speed === 'fast'
 }
 
 /** A prompt (a request's whole input, cache included) longer than this is billed at a model's
@@ -212,8 +220,10 @@ export interface UsageTotals {
   steps: number
   /** Usage summed per model, with how many requests each made: the environmental impacts count
    *  a start-up cost per request. `long_prompt` is the part of it whose prompts were longer than
-   *  LONG_PROMPT_TOKENS, absent until one is */
-  byModel: Map<string, ModelUsage & { requests: number; long_prompt?: ModelUsage }>
+   *  LONG_PROMPT_TOKENS, absent until one is; `fast` the part that ran in fast mode, absent until
+   *  one does. A fast request is counted in `fast` alone, not in `long_prompt`: no model has both
+   *  a fast mode and a long-prompt card */
+  byModel: Map<string, ModelUsage & { requests: number; long_prompt?: ModelUsage; fast?: ModelUsage }>
 }
 
 export interface WatchedSession {

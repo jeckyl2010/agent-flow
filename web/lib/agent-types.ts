@@ -130,6 +130,8 @@ export interface StepUsageLike {
   output_tokens: number
   cache_read_input_tokens: number
   cache_creation_input_tokens: number
+  /** `fast` when the summary ran in fast mode */
+  speed?: string
 }
 
 /** A conversation resumed (or forked) from an earlier one, as Claude Code's SessionStart hook said */
