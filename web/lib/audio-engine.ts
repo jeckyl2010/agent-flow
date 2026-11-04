@@ -1,5 +1,3 @@
-'use client'
-
 /**
  * Procedural audio engine using Web Audio API.
  * All sounds are synthesized — no audio files needed.

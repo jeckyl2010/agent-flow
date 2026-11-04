@@ -1,5 +1,3 @@
-'use client'
-
 import { useMemo } from 'react'
 import type { Agent, Compaction, RateLimit, SimulationEvent } from '@/lib/agent-types'
 import { Z } from '@/lib/agent-types'

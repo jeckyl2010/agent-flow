@@ -1,5 +1,3 @@
-'use client'
-
 import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath } from '@/lib/utils'

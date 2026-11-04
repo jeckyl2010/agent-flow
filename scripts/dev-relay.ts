@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Dev relay server — wraps the shared relay with a standalone HTTP server
- * that includes CORS headers for cross-origin dev mode (Next.js on :3000).
+ * that includes CORS headers for cross-origin dev mode (the Vite dev server on :3000).
  */
 import * as http from 'http'
 import { createRelay } from './relay'
@@ -19,7 +19,7 @@ async function main() {
 
   const server = http.createServer((req, res) => {
     // Echo back the request Origin if it matches a localhost pattern, so
-    // CORS survives Next.js picking a fallback port when 3000 is busy.
+    // CORS survives the dev server picking a fallback port when 3000 is busy.
     const origin = req.headers.origin
     if (typeof origin === 'string' && DEV_WEB_ORIGIN_PATTERN.test(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin)

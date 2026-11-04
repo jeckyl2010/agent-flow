@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Agent, Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'

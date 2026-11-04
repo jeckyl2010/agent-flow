@@ -1,5 +1,3 @@
-'use client'
-
 import { CARD, Z, type AgentState, type Compaction, type TurnFailure, type WorkflowPlace } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName } from '@/lib/utils'

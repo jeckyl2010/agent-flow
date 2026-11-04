@@ -1,5 +1,3 @@
-'use client'
-
 import { CARD, Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { TranscriptMessage } from './transcript-message'

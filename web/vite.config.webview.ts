@@ -7,8 +7,8 @@ export default defineConfig(createBuildConfig({
   entry: 'webview-entry.tsx',
   name: 'AgentFlowWebview',
   define: {
-    'process.env.NEXT_PUBLIC_DEMO': '"1"',
-    'process.env.NEXT_PUBLIC_RELAY_PORT': JSON.stringify(String(DEFAULT_RELAY_PORT)),
-    'process.env.AGENT_FLOW_STANDALONE': '"0"',
+    'import.meta.env.AGENT_FLOW_DEMO': '"1"',
+    'import.meta.env.AGENT_FLOW_RELAY_PORT': JSON.stringify(String(DEFAULT_RELAY_PORT)),
+    'import.meta.env.AGENT_FLOW_STANDALONE': '"0"',
   },
 }))

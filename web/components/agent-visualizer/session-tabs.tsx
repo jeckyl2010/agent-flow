@@ -1,5 +1,3 @@
-'use client'
-
 import { useEffect, useRef, useCallback } from 'react'
 import { COLORS } from '@/lib/colors'
 import type { SessionInfo } from '@/lib/vscode-bridge'

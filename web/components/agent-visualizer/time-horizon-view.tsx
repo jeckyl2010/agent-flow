@@ -1,5 +1,3 @@
-'use client'
-
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { compactionLabel } from '@/lib/compaction'
 import { Z, type Agent, type SimulationEvent } from '@/lib/agent-types'

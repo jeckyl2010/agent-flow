@@ -146,7 +146,7 @@ export class VisualizerPanel implements vscode.Disposable {
     const port = config.get<number>('devServerPort', DEFAULT_DEV_PORT)
     const nonce = getNonce()
 
-    // In dev mode, load the Next.js app via iframe
+    // In dev mode, load the dev server's app (`pnpm run dev:web`) via iframe
     // The bridge script in the iframe communicates with the parent via postMessage
     return `<!DOCTYPE html>
 <html lang="en" style="height:100%; margin:0; padding:0;">

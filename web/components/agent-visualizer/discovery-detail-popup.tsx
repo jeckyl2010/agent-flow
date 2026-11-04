@@ -1,5 +1,3 @@
-'use client'
-
 import { POPUP } from '@/lib/agent-types'
 import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
 import { PanelHeader, DetailPopup } from './shared-ui'

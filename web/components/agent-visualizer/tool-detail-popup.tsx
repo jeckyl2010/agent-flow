@@ -1,5 +1,3 @@
-'use client'
-
 import { POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { ToolContentRenderer } from './tool-content-renderer'

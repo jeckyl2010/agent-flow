@@ -1,5 +1,3 @@
-'use client'
-
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Agent, Particle, Edge, Discovery, DepthParticle } from '@/lib/agent-types'
 import type { SimulationState } from '@/hooks/simulation/types'

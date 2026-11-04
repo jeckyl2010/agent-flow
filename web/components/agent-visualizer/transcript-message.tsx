@@ -1,5 +1,3 @@
-'use client'
-
 import { useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { ToolContentRenderer } from './tool-content-renderer'

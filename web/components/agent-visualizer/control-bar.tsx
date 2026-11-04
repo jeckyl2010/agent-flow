@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useEffect, useCallback, useRef, memo } from 'react'
 import { TimelineEvent, Z, POPUP, TIMING } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
