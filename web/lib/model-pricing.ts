@@ -33,13 +33,21 @@ export interface StepUsage {
   /** The part of cache_creation_input_tokens written with the 1-hour TTL; absent when the
    *  source doesn't break writes down by TTL, which then count as 5-minute ones */
   cache_creation_1h_input_tokens?: number
-  /** `fast` for a request in fast mode; absent (or `standard`) at the standard speed */
-  speed?: string
+  /** `fast` for a request in fast mode; absent at the standard speed */
+  speed?: 'fast'
 }
 
-/** Fast mode bills this multiple of the model's card: Opus 5.5 at $8 / $40, Opus 5 and 4.8 at
- *  $10 / $50 */
-export const FAST_MODE_MULTIPLIER = 2
+/** Usage summed over many requests, as the relay totals it per model: the parts of it priced at
+ *  another card than the standard one, each request in at most one part */
+export interface UsageTotal extends StepUsage {
+  /** The requests whose prompts were longer than LONG_PROMPT_ABOVE */
+  long_prompt?: StepUsage
+  /** The requests in fast mode */
+  fast?: StepUsage
+}
+
+/** Fast mode bills this multiple of the model's card */
+const FAST_MODE_MULTIPLIER = 2
 
 /** A cache write with the default 5-minute TTL costs this multiple of input */
 export const CACHE_WRITE_MULTIPLIER = 1.25
@@ -107,28 +115,26 @@ function promptTokens(usage: StepUsage): number {
   return usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
 }
 
-/** A card in fast mode */
-function fastPrice(p: ModelPrice): ModelPrice {
+/** The card a request is billed at: its model's for a prompt of `promptTokens`, in fast mode
+ *  `isFast` times over */
+function cardPrice(model: string | undefined, promptTokens: number, isFast: boolean): ModelPrice {
+  const p = modelPrice(model, promptTokens)
+  if (!isFast) return p
   return { input: p.input * FAST_MODE_MULTIPLIER, output: p.output * FAST_MODE_MULTIPLIER, cacheRead: p.cacheRead * FAST_MODE_MULTIPLIER }
 }
 
 /** What one model request cost, in $ */
 export function stepCost(usage: StepUsage, model?: string): number {
-  const price = modelPrice(model, promptTokens(usage))
-  return usageCost(usage, usage.speed === 'fast' ? fastPrice(price) : price)
+  return usageCost(usage, cardPrice(model, promptTokens(usage), usage.speed === 'fast'))
 }
 
-/**
- * What many requests cost, in $, from their usage summed: `longPrompt` is the part of it whose
- * prompts were long (the relay's LONG_PROMPT_TOKENS, which a model's long-prompt card starts
- * above), priced at that card; `fast` the part that ran in fast mode, at twice the standard card
- * (the relay counts a fast request in `fast` alone); the rest at the standard one
- */
-export function totalCost(usage: StepUsage, model?: string, longPrompt?: StepUsage, fast?: StepUsage): number {
-  const rest = without(without(usage, longPrompt), fast)
-  return usageCost(rest, modelPrice(model))
-    + (longPrompt ? usageCost(longPrompt, modelPrice(model, Infinity)) : 0)
-    + (fast ? usageCost(fast, fastPrice(modelPrice(model))) : 0)
+/** What many requests cost, in $, from their usage summed: each part at its card, the rest at
+ *  the standard one. An older relay keeps no parts: all of it is priced at the standard card */
+export function totalCost(total: UsageTotal, model?: string): number {
+  const { long_prompt: longPrompt, fast } = total
+  return usageCost(without(without(total, longPrompt), fast), cardPrice(model, 0, false))
+    + (longPrompt ? usageCost(longPrompt, cardPrice(model, Infinity, false)) : 0)
+    + (fast ? usageCost(fast, cardPrice(model, 0, true)) : 0)
 }
 
 /** `usage` less `part` of it */

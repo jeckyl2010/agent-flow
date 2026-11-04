@@ -3,24 +3,37 @@ import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
 import type { UserConfig } from 'vite'
 
+/** How a page built from this source finds its events (web/env.d.ts) */
+export interface Flags {
+  /** Plays the demo session, rather than follow a relay's */
+  demo: boolean
+  /** The relay's port, on 127.0.0.1; left out, the page's own origin */
+  relayPort?: number
+}
+
+/** What every page built from this source shares: the dev server's, the webview's, the app's */
+export function baseConfig(flags: Flags): UserConfig {
+  return {
+    plugins: [react(), tailwindcss()],
+    resolve: { alias: { '@': resolve(import.meta.dirname) } },
+    define: {
+      'import.meta.env.AGENT_FLOW_DEMO': JSON.stringify(flags.demo ? '1' : '0'),
+      'import.meta.env.AGENT_FLOW_RELAY_PORT': JSON.stringify(flags.relayPort === undefined ? '' : String(flags.relayPort)),
+    },
+  }
+}
+
 interface BuildTarget {
   outDir: string
   entry: string
   name: string
-  define: Record<string, string>
+  flags: Flags
 }
 
 export function createBuildConfig(target: BuildTarget): UserConfig {
+  const base = baseConfig(target.flags)
   return {
-    plugins: [
-      react(),
-      tailwindcss(),
-    ],
-    resolve: {
-      alias: {
-        '@': resolve(import.meta.dirname),
-      },
-    },
+    ...base,
     publicDir: false,
     build: {
       outDir: resolve(import.meta.dirname, target.outDir),
@@ -46,8 +59,8 @@ export function createBuildConfig(target: BuildTarget): UserConfig {
       },
     },
     define: {
+      ...base.define,
       'process.env.NODE_ENV': '"production"',
-      ...target.define,
     },
   }
 }

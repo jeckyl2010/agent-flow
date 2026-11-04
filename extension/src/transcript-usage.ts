@@ -60,7 +60,8 @@ export function addUsage(all: Map<string, UsageTotals>, agentName: string, model
   return totals
 }
 
-/** The part of a model's totals, priced apart, that a request is counted in besides the whole */
+/** The part of a model's totals, priced apart, that a request is counted in besides the whole: at
+ *  most one, as no model has both a fast mode and a long-prompt card */
 function pricedPart(usage: ModelUsage): 'fast' | 'long_prompt' | undefined {
   if (usage.speed === 'fast') return 'fast'
   const prompt = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
@@ -75,25 +76,30 @@ export function totalsPayload(totals: UsageTotals) {
   }
 }
 
+/** One request's usage from the API's `usage` (in a transcript, or as the mod passes it on) */
+export function toModelUsage(u: object): ModelUsage {
+  const raw = u as Record<string, unknown>
+  const n = (k: string) => (typeof raw[k] === 'number' ? raw[k] as number : 0)
+  return {
+    input_tokens: n('input_tokens'),
+    output_tokens: n('output_tokens'),
+    cache_read_input_tokens: n('cache_read_input_tokens'),
+    cache_creation_input_tokens: n('cache_creation_input_tokens'),
+    cache_creation_1h_input_tokens: oneHourWrites(raw),
+    ...(isFastUsage(raw) ? { speed: 'fast' as const } : {}),
+  }
+}
+
 /** The request a parsed assistant entry belongs to, with its id; undefined for any other entry */
 export function parseTranscriptStep(parsed: unknown): { id: string; step: TranscriptStep } | undefined {
   if (!isRecord(parsed) || parsed.type !== 'assistant' || !isRecord(parsed.message)) return undefined
   const msg = parsed.message
   if (typeof msg.id !== 'string' || !isRecord(msg.usage)) return undefined
-  const u = msg.usage
-  const n = (k: string) => (typeof u[k] === 'number' ? u[k] as number : 0)
   return {
     id: msg.id,
     step: {
       model: typeof msg.model === 'string' ? msg.model : 'unknown',
-      usage: {
-        input_tokens: n('input_tokens'),
-        output_tokens: n('output_tokens'),
-        cache_read_input_tokens: n('cache_read_input_tokens'),
-        cache_creation_input_tokens: n('cache_creation_input_tokens'),
-        cache_creation_1h_input_tokens: oneHourWrites(u),
-        ...(isFastUsage(u) ? { speed: 'fast' as const } : {}),
-      },
+      usage: toModelUsage(msg.usage),
       stopReason: typeof msg.stop_reason === 'string' ? msg.stop_reason : undefined,
       effort: typeof parsed.effort === 'string' ? parsed.effort : undefined,
     },

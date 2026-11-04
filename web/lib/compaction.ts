@@ -102,7 +102,8 @@ function asUsage(v: unknown): StepUsageLike | undefined {
   const u = v as Record<string, unknown>
   const keys = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'] as const
   if (!keys.every(k => typeof u[k] === 'number')) return undefined
-  return Object.fromEntries(keys.map(k => [k, u[k]])) as unknown as StepUsageLike
+  const usage = Object.fromEntries(keys.map(k => [k, u[k]])) as unknown as StepUsageLike
+  return u.speed === 'fast' ? { ...usage, speed: 'fast' } : usage
 }
 
 /**

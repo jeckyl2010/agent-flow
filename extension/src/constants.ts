@@ -40,7 +40,7 @@ export const BRIDGE_INIT_MAX_RETRIES = 50
 export const BRIDGE_INIT_RETRY_MS = 100
 
 /** Default dev server port */
-export const DEFAULT_DEV_PORT = 3002
+export const DEFAULT_DEV_PORT = 3000
 
 /** Default SSE relay port (used by dev relay, standalone app, and webview build) */
 export const DEFAULT_RELAY_PORT = 3001

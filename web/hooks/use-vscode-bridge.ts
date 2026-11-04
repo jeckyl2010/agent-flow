@@ -70,11 +70,10 @@ export function useVSCodeBridge(): BridgeHookResult {
     // Skip in VS Code — extension handles events via postMessage
     if (bridge.isVSCode) return
 
-    // Connect to a relay in the desktop app, or in `pnpm run dev` (not the demo)
-    const isStandalone = import.meta.env.AGENT_FLOW_STANDALONE === '1'
-    if (!isStandalone && import.meta.env.AGENT_FLOW_DEMO !== '0') return
+    // Follow a relay in the desktop app and in `pnpm run dev`, not in the demo
+    if (import.meta.env.AGENT_FLOW_DEMO !== '0') return
 
-    const relayPort = import.meta.env.AGENT_FLOW_RELAY_PORT || ''
+    const relayPort = import.meta.env.AGENT_FLOW_RELAY_PORT
     const es = new EventSource(relayPort ? `http://127.0.0.1:${relayPort}/events` : '/events')
 
     es.onopen = () => {

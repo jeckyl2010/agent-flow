@@ -79,17 +79,28 @@ describe('recordTranscriptUsage', () => {
   })
 })
 
+/** A request with only token counts, and the API's `speed` when given */
+function request(id: string, model: string, usage: { output?: number; cacheRead?: number; speed?: string } = {}) {
+  return {
+    type: 'assistant',
+    message: {
+      id, model,
+      usage: {
+        input_tokens: 10, output_tokens: usage.output ?? 5, cache_read_input_tokens: usage.cacheRead ?? 0, cache_creation_input_tokens: 0,
+        ...(usage.speed ? { speed: usage.speed } : {}),
+      },
+    },
+  }
+}
+const totalsOf = (s: WatchedSession, agent: string, model: string) => s.usageTotals.get(agent)!.byModel.get(model)!
+
 describe('long prompts', () => {
   it('keeps the usage of requests whose prompts passed 100K tokens apart as well', () => {
     const s = session()
-    const request = (id: string, cacheRead: number) => ({
-      type: 'assistant',
-      message: { id, model: 'claude-haiku-5-5', usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 } },
-    })
-    recordTranscriptUsage(request('short', 60_000), 'orchestrator', s)
-    assert.equal(s.usageTotals.get('orchestrator')!.byModel.get('claude-haiku-5-5')!.long_prompt, undefined)
-    recordTranscriptUsage(request('long', 120_000), 'orchestrator', s)
-    const sum = s.usageTotals.get('orchestrator')!.byModel.get('claude-haiku-5-5')!
+    recordTranscriptUsage(request('short', 'claude-haiku-5-5', { cacheRead: 60_000 }), 'orchestrator', s)
+    assert.equal(totalsOf(s, 'orchestrator', 'claude-haiku-5-5').long_prompt, undefined)
+    recordTranscriptUsage(request('long', 'claude-haiku-5-5', { cacheRead: 120_000 }), 'orchestrator', s)
+    const sum = totalsOf(s, 'orchestrator', 'claude-haiku-5-5')
     assert.equal(sum.cache_read_input_tokens, 180_000)
     assert.deepEqual(sum.long_prompt, {
       input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 120_000, cache_creation_input_tokens: 0, cache_creation_1h_input_tokens: 0,
@@ -98,17 +109,14 @@ describe('long prompts', () => {
 })
 
 describe('fast mode', () => {
-  const request = (id: string, output: number, speed: string, cacheRead = 0) => ({
-    type: 'assistant',
-    message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0, speed } },
-  })
+  const opus = 'claude-opus-5-5'
 
   it('marks a request the API ran fast, and keeps its usage apart', () => {
     const s = session()
-    assert.equal(recordTranscriptUsage(request('std', 5, 'standard'), 'orchestrator', s)!.usage.speed, undefined)
-    assert.equal(s.usageTotals.get('orchestrator')!.byModel.get('claude-opus-5-5')!.fast, undefined)
-    assert.equal(recordTranscriptUsage(request('fast', 7, 'fast'), 'orchestrator', s)!.usage.speed, 'fast')
-    const sum = s.usageTotals.get('orchestrator')!.byModel.get('claude-opus-5-5')!
+    assert.equal(recordTranscriptUsage(request('std', opus, { speed: 'standard' }), 'orchestrator', s)!.usage.speed, undefined)
+    assert.equal(totalsOf(s, 'orchestrator', opus).fast, undefined)
+    assert.equal(recordTranscriptUsage(request('fast', opus, { output: 7, speed: 'fast' }), 'orchestrator', s)!.usage.speed, 'fast')
+    const sum = totalsOf(s, 'orchestrator', opus)
     assert.equal(sum.output_tokens, 12)
     assert.deepEqual(sum.fast, {
       input_tokens: 10, output_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cache_creation_1h_input_tokens: 0,
@@ -117,19 +125,27 @@ describe('fast mode', () => {
 
   it('counts a long fast request as fast alone', () => {
     const s = session()
-    recordTranscriptUsage(request('fast', 7, 'fast', 150_000), 'orchestrator', s)
-    const sum = s.usageTotals.get('orchestrator')!.byModel.get('claude-opus-5-5')!
+    recordTranscriptUsage(request('fast', opus, { cacheRead: 150_000, speed: 'fast' }), 'orchestrator', s)
+    const sum = totalsOf(s, 'orchestrator', opus)
     assert.equal(sum.long_prompt, undefined)
     assert.equal(sum.fast?.cache_read_input_tokens, 150_000)
   })
 
   it('adds a later entry\'s output to the fast part too', () => {
     const s = session()
-    recordTranscriptUsage(request('fast', 8, 'fast'), 'explorer', s)
-    recordTranscriptUsage(request('fast', 400, 'fast'), 'explorer', s)
-    const sum = s.usageTotals.get('explorer')!.byModel.get('claude-opus-5-5')!
+    recordTranscriptUsage(request('fast', opus, { output: 8, speed: 'fast' }), 'explorer', s)
+    recordTranscriptUsage(request('fast', opus, { output: 400, speed: 'fast' }), 'explorer', s)
+    const sum = totalsOf(s, 'explorer', opus)
     assert.equal(sum.output_tokens, 400)
     assert.equal(sum.fast?.output_tokens, 400)
+  })
+
+  it('reaches the model_step payload\'s totals, which the web prices', () => {
+    const s = session()
+    const step = recordTranscriptUsage(request('fast', opus, { output: 7, speed: 'fast' }), 'orchestrator', s)!
+    const payload = modelStepPayload('orchestrator', step, s.usageTotals.get('orchestrator')!)
+    assert.equal((payload.usage as { speed?: string }).speed, 'fast')
+    assert.deepEqual((payload.totals as { byModel: { fast?: unknown }[] }).byModel[0]?.fast, totalsOf(s, 'orchestrator', opus).fast)
   })
 })
 
