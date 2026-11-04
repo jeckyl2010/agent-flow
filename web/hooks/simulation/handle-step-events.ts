@@ -17,6 +17,7 @@ function asUsage(v: unknown): StepUsage | undefined {
     cache_read_input_tokens: n('cache_read_input_tokens'),
     cache_creation_input_tokens: n('cache_creation_input_tokens'),
     cache_creation_1h_input_tokens: n('cache_creation_1h_input_tokens'),
+    ...(u.speed === 'fast' ? { speed: 'fast' } : {}),
   }
 }
 
@@ -48,8 +49,9 @@ function spendFromTotals(v: unknown, isComplete: boolean): Omit<AgentSpend, 'las
       // Older relays sent no count per model: a single model made them all
       requests: typeof requests === 'number' ? requests : byModel.length === 1 ? steps : 0,
     })
-    // Older relays keep no long-prompt part: all of it is priced at the standard card
-    spend.cost += totalCost(usage, model, asUsage((entry as { long_prompt?: unknown }).long_prompt))
+    // Older relays keep no long-prompt or fast part: all of it is priced at the standard card
+    const { long_prompt: longPrompt, fast } = entry as { long_prompt?: unknown; fast?: unknown }
+    spend.cost += totalCost(usage, model, asUsage(longPrompt), asUsage(fast))
     spend.input += usage.input_tokens
     spend.output += usage.output_tokens
     spend.cacheRead += usage.cache_read_input_tokens

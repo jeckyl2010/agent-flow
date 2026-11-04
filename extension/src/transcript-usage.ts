@@ -7,7 +7,7 @@
  * API measured: output tokens (which the environmental impacts are figured from) and prices.
  */
 
-import { LONG_PROMPT_TOKENS, type ModelUsage, type UsageTotals, type WatchedSession } from './protocol'
+import { isFastUsage, LONG_PROMPT_TOKENS, type ModelUsage, type UsageTotals, type WatchedSession } from './protocol'
 
 export interface TranscriptStep {
   model: string
@@ -47,15 +47,24 @@ export function addUsage(all: Map<string, UsageTotals>, agentName: string, model
   }
   totals.steps++
   const sum = totals.byModel.get(model)
-  const prompt = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
-  // Summed, the requests can't say which were long: those are kept apart as well, to be priced
-  const longPrompt = prompt > LONG_PROMPT_TOKENS ? sumUsage(sum?.long_prompt, usage) : sum?.long_prompt
+  // Summed, the requests can't say which were long or fast: those are kept apart as well, to be priced
+  const part = pricedPart(usage)
+  const longPrompt = part === 'long_prompt' ? sumUsage(sum?.long_prompt, usage) : sum?.long_prompt
+  const fast = part === 'fast' ? sumUsage(sum?.fast, usage) : sum?.fast
   totals.byModel.set(model, {
     ...sumUsage(sum, usage),
     requests: (sum?.requests ?? 0) + 1,
     ...(longPrompt ? { long_prompt: longPrompt } : {}),
+    ...(fast ? { fast } : {}),
   })
   return totals
+}
+
+/** The part of a model's totals, priced apart, that a request is counted in besides the whole */
+function pricedPart(usage: ModelUsage): 'fast' | 'long_prompt' | undefined {
+  if (usage.speed === 'fast') return 'fast'
+  const prompt = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+  return prompt > LONG_PROMPT_TOKENS ? 'long_prompt' : undefined
 }
 
 /** An agent's totals as a model_step carries them: `{ steps, byModel: [{ model, ...usage }] }` */
@@ -83,6 +92,7 @@ export function parseTranscriptStep(parsed: unknown): { id: string; step: Transc
         cache_read_input_tokens: n('cache_read_input_tokens'),
         cache_creation_input_tokens: n('cache_creation_input_tokens'),
         cache_creation_1h_input_tokens: oneHourWrites(u),
+        ...(isFastUsage(u) ? { speed: 'fast' as const } : {}),
       },
       stopReason: typeof msg.stop_reason === 'string' ? msg.stop_reason : undefined,
       effort: typeof parsed.effort === 'string' ? parsed.effort : undefined,
@@ -108,9 +118,9 @@ export function recordTranscriptUsage(
     const sum = session.usageTotals.get(agentName)?.byModel.get(model)
     if (sum && usage.output_tokens > counted) {
       sum.output_tokens += usage.output_tokens - counted
-      if (sum.long_prompt && usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens > LONG_PROMPT_TOKENS) {
-        sum.long_prompt.output_tokens += usage.output_tokens - counted
-      }
+      const part = pricedPart(usage)
+      const partSum = part && sum[part]
+      if (partSum) partSum.output_tokens += usage.output_tokens - counted
       session.usageOutputs.set(found.id, usage.output_tokens)
     }
     return undefined

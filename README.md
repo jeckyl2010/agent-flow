@@ -15,8 +15,8 @@ Code.
 - **The canvas.** Each agent is a node, and its subagents, teammates and workflow agents branch
   off it. Tool calls fly out and return, answers stream in, and a heartbeat pulses with each model
   request. Click anything to inspect it.
-- **Cost and the cache.** Each agent's spend, priced from the API's own usage, and how much of
-  each prompt the cache served. Its model and effort sit on its card.
+- **Cost and the cache.** Each agent's spend, priced from the API's own usage (fast mode at its
+  premium), and how much of each prompt the cache served. Its model and effort sit on its card.
 - **Context.** How full each agent's context is, and of what: the system prompt and tools as
   Claude Code sent them, your messages, tool results, reasoning and subagent reports.
 - **Compactions as wormholes.** When a conversation is compacted, its node opens a wormhole and
@@ -90,8 +90,11 @@ claude --plugin-dir /path/to/agent-flow/plugin
 ```
 
 `/agent-flow` in Claude Code shows where it sends events. The mod needs Claude Code 2.1.300 or
-later. Each feature arrives with the Claude Code release that reports it, and the mod API is early
-access: sessions without the mod keep working from the hooks and transcripts.
+later. Before 2.1.318, a mod that streams model output, as this one does, could make a `claude -p`
+or Agent SDK run report success when the reply was stopped or cut off by an API error: run headless
+jobs with the mod on 2.1.318 or later. Each feature arrives with the Claude Code release that
+reports it, and the mod API is early access: sessions without the mod keep working from the
+hooks and transcripts.
 
 ## Settings
 

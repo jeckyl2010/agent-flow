@@ -97,6 +97,42 @@ describe('long prompts', () => {
   })
 })
 
+describe('fast mode', () => {
+  const request = (id: string, output: number, speed: string, cacheRead = 0) => ({
+    type: 'assistant',
+    message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0, speed } },
+  })
+
+  it('marks a request the API ran fast, and keeps its usage apart', () => {
+    const s = session()
+    assert.equal(recordTranscriptUsage(request('std', 5, 'standard'), 'orchestrator', s)!.usage.speed, undefined)
+    assert.equal(s.usageTotals.get('orchestrator')!.byModel.get('claude-opus-5-5')!.fast, undefined)
+    assert.equal(recordTranscriptUsage(request('fast', 7, 'fast'), 'orchestrator', s)!.usage.speed, 'fast')
+    const sum = s.usageTotals.get('orchestrator')!.byModel.get('claude-opus-5-5')!
+    assert.equal(sum.output_tokens, 12)
+    assert.deepEqual(sum.fast, {
+      input_tokens: 10, output_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cache_creation_1h_input_tokens: 0,
+    })
+  })
+
+  it('counts a long fast request as fast alone', () => {
+    const s = session()
+    recordTranscriptUsage(request('fast', 7, 'fast', 150_000), 'orchestrator', s)
+    const sum = s.usageTotals.get('orchestrator')!.byModel.get('claude-opus-5-5')!
+    assert.equal(sum.long_prompt, undefined)
+    assert.equal(sum.fast?.cache_read_input_tokens, 150_000)
+  })
+
+  it('adds a later entry\'s output to the fast part too', () => {
+    const s = session()
+    recordTranscriptUsage(request('fast', 8, 'fast'), 'explorer', s)
+    recordTranscriptUsage(request('fast', 400, 'fast'), 'explorer', s)
+    const sum = s.usageTotals.get('explorer')!.byModel.get('claude-opus-5-5')!
+    assert.equal(sum.output_tokens, 400)
+    assert.equal(sum.fast?.output_tokens, 400)
+  })
+})
+
 describe('modelStepPayload', () => {
   it('carries the request and the totals the way the bridge mod sends them', () => {
     const s = session()

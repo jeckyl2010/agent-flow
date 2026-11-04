@@ -10,6 +10,9 @@
  * Some models have a second rate card for long prompts (Haiku 5.5: 5× past 100K tokens). The
  * prompt is the request's whole input, cache reads and writes included; output and the cache's
  * rates follow the card the prompt chose.
+ *
+ * A request in fast mode (Opus 5.5, Opus 5 and Opus 4.8, on Anthropic's API) is billed at twice
+ * the model's card, cache reads and writes too; the API's usage says so (`speed: "fast"`).
  */
 
 import { canonicalModelId } from './utils'
@@ -30,7 +33,13 @@ export interface StepUsage {
   /** The part of cache_creation_input_tokens written with the 1-hour TTL; absent when the
    *  source doesn't break writes down by TTL, which then count as 5-minute ones */
   cache_creation_1h_input_tokens?: number
+  /** `fast` for a request in fast mode; absent (or `standard`) at the standard speed */
+  speed?: string
 }
+
+/** Fast mode bills this multiple of the model's card: Opus 5.5 at $8 / $40, Opus 5 and 4.8 at
+ *  $10 / $50 */
+export const FAST_MODE_MULTIPLIER = 2
 
 /** A cache write with the default 5-minute TTL costs this multiple of input */
 export const CACHE_WRITE_MULTIPLIER = 1.25
@@ -98,26 +107,40 @@ function promptTokens(usage: StepUsage): number {
   return usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
 }
 
+/** A card in fast mode */
+function fastPrice(p: ModelPrice): ModelPrice {
+  return { input: p.input * FAST_MODE_MULTIPLIER, output: p.output * FAST_MODE_MULTIPLIER, cacheRead: p.cacheRead * FAST_MODE_MULTIPLIER }
+}
+
 /** What one model request cost, in $ */
 export function stepCost(usage: StepUsage, model?: string): number {
-  return usageCost(usage, modelPrice(model, promptTokens(usage)))
+  const price = modelPrice(model, promptTokens(usage))
+  return usageCost(usage, usage.speed === 'fast' ? fastPrice(price) : price)
 }
 
 /**
  * What many requests cost, in $, from their usage summed: `longPrompt` is the part of it whose
  * prompts were long (the relay's LONG_PROMPT_TOKENS, which a model's long-prompt card starts
- * above), priced at that card; the rest at the standard one
+ * above), priced at that card; `fast` the part that ran in fast mode, at twice the standard card
+ * (the relay counts a fast request in `fast` alone); the rest at the standard one
  */
-export function totalCost(usage: StepUsage, model?: string, longPrompt?: StepUsage): number {
-  if (!longPrompt) return usageCost(usage, modelPrice(model))
-  const rest: StepUsage = {
-    input_tokens: usage.input_tokens - longPrompt.input_tokens,
-    output_tokens: usage.output_tokens - longPrompt.output_tokens,
-    cache_read_input_tokens: usage.cache_read_input_tokens - longPrompt.cache_read_input_tokens,
-    cache_creation_input_tokens: usage.cache_creation_input_tokens - longPrompt.cache_creation_input_tokens,
-    cache_creation_1h_input_tokens: (usage.cache_creation_1h_input_tokens ?? 0) - (longPrompt.cache_creation_1h_input_tokens ?? 0),
+export function totalCost(usage: StepUsage, model?: string, longPrompt?: StepUsage, fast?: StepUsage): number {
+  const rest = without(without(usage, longPrompt), fast)
+  return usageCost(rest, modelPrice(model))
+    + (longPrompt ? usageCost(longPrompt, modelPrice(model, Infinity)) : 0)
+    + (fast ? usageCost(fast, fastPrice(modelPrice(model))) : 0)
+}
+
+/** `usage` less `part` of it */
+function without(usage: StepUsage, part?: StepUsage): StepUsage {
+  if (!part) return usage
+  return {
+    input_tokens: usage.input_tokens - part.input_tokens,
+    output_tokens: usage.output_tokens - part.output_tokens,
+    cache_read_input_tokens: usage.cache_read_input_tokens - part.cache_read_input_tokens,
+    cache_creation_input_tokens: usage.cache_creation_input_tokens - part.cache_creation_input_tokens,
+    cache_creation_1h_input_tokens: (usage.cache_creation_1h_input_tokens ?? 0) - (part.cache_creation_1h_input_tokens ?? 0),
   }
-  return usageCost(rest, modelPrice(model)) + usageCost(longPrompt, modelPrice(model, Infinity))
 }
 
 function usageCost(usage: StepUsage, p: ModelPrice): number {
