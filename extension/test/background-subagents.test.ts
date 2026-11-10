@@ -11,7 +11,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { emitSubagentSpawn, type AgentEvent } from '../src/protocol'
-import { TranscriptParser, parseTaskNotification } from '../src/transcript-parser'
+import { TranscriptParser, parseTaskNotification, mcpBackgroundTask } from '../src/transcript-parser'
 import { createWatchedSession } from '../src/watched-session'
 import { ORCHESTRATOR_NAME } from '../src/constants'
 import { canIdleCompact, idleCompactionSetting, isCompactionDisabled, isVersionAtLeast } from '../src/idle-compaction'
@@ -85,9 +85,9 @@ describe('subagents in the background', () => {
     assert.equal(events.some(e => e.type === 'subagent_return'), false)
   })
 
-  it('reads a task notification’s call, status and summary', () => {
+  it('reads a task notification’s call, task, status and summary', () => {
     assert.deepEqual(parseTaskNotification(notification('tu-9').message.content as string),
-      { toolUseId: 'tu-9', status: 'completed', summary: 'Agent "Review the plan" finished' })
+      { toolUseId: 'tu-9', taskId: 'a590dd', status: 'completed', summary: 'Agent "Review the plan" finished' })
     assert.equal(parseTaskNotification('Just a message'), undefined)
   })
 
@@ -211,5 +211,46 @@ describe('why a permission dialog asks', () => {
   it('keeps the organization’s requirement and a rule first', () => {
     assert.equal(permissionWhy({ ceiling: 'ask', rule: 'Bash(git push:*)', hook: 'PreToolUse' }), 'Your organization requires approval')
     assert.equal(permissionWhy({ rule: 'Bash(git push:*)', hook: 'PreToolUse' }), 'Rule Bash(git push:*)')
+  })
+})
+
+describe('MCP calls in the background (2.1.319)', () => {
+  const mcpCall = (id: string) => ({
+    type: 'assistant', uuid: `a-${id}`, message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'mcp__staging__deploy_preview', input: { branch: 'payments' } }] },
+  })
+  const moved = 'MCP tool "mcp__staging__deploy_preview" is still running after 120s. It was moved to the background as task deploy-41 and keeps running. You can keep working in the meantime.'
+  const mcpNotice = (lines: string[]) => ({
+    type: 'user', uuid: `n-${lines.join('').length}`, message: { role: 'user', content: ['<task-notification>', ...lines, '</task-notification>'].join('\n') },
+  })
+
+  it('a call moved to the background stays out until its task notification, by its call', () => {
+    const { events, line } = setup()
+    line(mcpCall('tu-m'))
+    line(agentResult('tu-m', moved))
+    const end = events.find(e => e.type === 'tool_call_end')!
+    assert.equal(end.payload.background, true)
+    assert.equal(end.payload.taskId, 'deploy-41')
+    assert.equal(end.payload.isError, undefined)
+
+    line(mcpNotice(['<task-id>deploy-41</task-id>', '<tool-use-id>tu-m</tool-use-id>', '<status>completed</status>', '<summary>MCP task deploy-41 (staging/deploy_preview) completed</summary>']))
+    assert.deepEqual(events.filter(e => e.type === 'tool_background_end').map(e => e.payload), [{
+      agent: ORCHESTRATOR_NAME, tool: 'mcp__staging__deploy_preview', taskId: 'deploy-41', status: 'completed',
+      result: 'MCP task deploy-41 (staging/deploy_preview) completed', isError: false,
+    }])
+  })
+
+  it('a notification naming only the task ends it too, and a failed one as an error', () => {
+    const { events, line } = setup()
+    line(mcpCall('tu-n'))
+    line(agentResult('tu-n', 'Export started, running in the background as task exp-7. The server keeps it going.'))
+    line(mcpNotice(['<task-id>exp-7</task-id>', '<status>failed</status>']))
+    const ends = events.filter(e => e.type === 'tool_background_end')
+    assert.deepEqual(ends.map(e => [e.payload.taskId, e.payload.status, e.payload.isError]), [['exp-7', 'failed', true]])
+  })
+
+  it('only an MCP tool\'s result is read as moved to the background', () => {
+    assert.equal(mcpBackgroundTask('mcp__ci__run', moved), 'deploy-41')
+    assert.equal(mcpBackgroundTask('Bash', moved), undefined)
+    assert.equal(mcpBackgroundTask('mcp__ci__run', 'All 42 tests passed'), undefined)
   })
 })

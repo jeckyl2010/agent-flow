@@ -74,13 +74,31 @@ function compactBoundary(line: Record<string, unknown>, lastEntryAt?: string): C
  *  anything, with this (and `toolUseResult.status: async_launched`) */
 const ASYNC_LAUNCH = /^Async agent launched/
 
-/** A background agent's end, as the main conversation is told it: a `<task-notification>` user
- *  message naming the Agent call that launched it, its status and a summary */
-export function parseTaskNotification(text: string): { toolUseId: string; status?: string; summary?: string } | undefined {
+/** What an MCP call returns when it goes on in the background (2.1.319): still running after two
+ *  minutes, or run by its server as an MCP task. The bridge mod reads the same (MCP_BACKGROUND) */
+const MCP_BACKGROUND = /\b(?:moved to|running in) the background as task (\S+?)[.,;:]?(?:\s|$)/
+
+/** The task an MCP call's result says it goes on in the background as, or undefined */
+export function mcpBackgroundTask(toolName: string, text: string): string | undefined {
+  return toolName.startsWith('mcp__') ? MCP_BACKGROUND.exec(text)?.[1] : undefined
+}
+
+/** A tool result's whole text: the string, or its text blocks joined */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content.map(c => (typeof c === 'string' ? c : c && typeof c === 'object' && 'text' in c ? String(c.text) : '')).join('\n')
+}
+
+/** A background task's end, as the main conversation is told it: a `<task-notification>` user
+ *  message naming the call that started it and its task, its status and a summary */
+export function parseTaskNotification(text: string): { toolUseId?: string; taskId?: string; status?: string; summary?: string } | undefined {
   if (!text.startsWith('<task-notification')) return undefined
   const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim()
   const toolUseId = tag('tool-use-id')
-  return toolUseId ? { toolUseId, status: tag('status'), summary: tag('summary') } : undefined
+  const taskId = tag('task-id')
+  if (!toolUseId && !taskId) return undefined
+  return { ...(toolUseId ? { toolUseId } : {}), ...(taskId ? { taskId } : {}), status: tag('status'), summary: tag('summary') }
 }
 
 /** A user message's text: the string, or its first text block's */
@@ -178,6 +196,9 @@ export class TranscriptParser {
   /** Agent tool_use ID → the subagent it launched in the background, and the agent that did, until
    *  the task notification that it ended */
   private backgroundChildren = new Map<string, { child: string; parent: string }>()
+  /** MCP tool_use ID → the call that went on in the background, until the task notification that
+   *  brings its result */
+  private backgroundMcp = new Map<string, { agent: string; tool: string; taskId: string }>()
 
   constructor(private delegate: TranscriptParserDelegate) {}
 
@@ -188,6 +209,7 @@ export class TranscriptParser {
       this.inlineSubagentState.delete(toolUseId)
       this.subagentChildNames.delete(toolUseId)
       this.backgroundChildren.delete(toolUseId)
+      this.backgroundMcp.delete(toolUseId)
     }
   }
 
@@ -510,8 +532,12 @@ export class TranscriptParser {
       }, sessionId)
     }
 
+    // An MCP call that returned before its result: it goes on in the background as a task
+    const taskId = mcpBackgroundTask(toolName, contentText(block.content))
+    if (taskId) this.backgroundMcp.set(block.tool_use_id, { agent: agentName, tool: toolName, taskId })
+
     // Detect errors in tool output
-    const isError = detectError(result)
+    const isError = !taskId && detectError(result)
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
 
     if (!isReported) this.delegate.emit({
@@ -524,6 +550,7 @@ export class TranscriptParser {
         tokenCost,
         ...(discovery ? { discovery } : {}),
         ...(isError ? { isError, errorMessage } : {}),
+        ...(taskId ? { background: true, taskId } : {}),
       },
     }, sessionId)
 
@@ -585,7 +612,26 @@ export class TranscriptParser {
   /** A compaction as it is written: the context estimate starts over from the summary, which the
    *  next line brings. The bridge mod reports a session's own, as it starts and ends */
   /** A background subagent's end, from the task notification the main conversation got */
-  private handleTaskNotification(notice: { toolUseId: string; status?: string; summary?: string }, sessionId?: string): void {
+  private handleTaskNotification(notice: { toolUseId?: string; taskId?: string; status?: string; summary?: string }, sessionId?: string): void {
+    // An MCP call's background task, by its call or else its task
+    const mcpId = notice.toolUseId && this.backgroundMcp.has(notice.toolUseId) ? notice.toolUseId
+      : [...this.backgroundMcp].find(([, c]) => c.taskId === notice.taskId)?.[0]
+    if (mcpId) {
+      const call = this.backgroundMcp.get(mcpId)!
+      this.backgroundMcp.delete(mcpId)
+      if (sessionId && isModSession(sessionId)) return // the mod reports its end
+      const status = notice.status || 'completed'
+      this.delegate.emit({
+        time: this.delegate.elapsed(sessionId),
+        type: 'tool_background_end',
+        payload: {
+          agent: call.agent, tool: call.tool, taskId: call.taskId, status,
+          result: (notice.summary || status).slice(0, RESULT_MAX), isError: status === 'failed',
+        },
+      }, sessionId)
+      return
+    }
+    if (!notice.toolUseId) return
     const launched = this.backgroundChildren.get(notice.toolUseId)
     if (!launched) return
     this.backgroundChildren.delete(notice.toolUseId)
