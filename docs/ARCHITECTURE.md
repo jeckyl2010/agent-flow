@@ -87,6 +87,19 @@ Some things neither source states. These are the places to look first when Claud
 - **Background subagents** without the mod: an Agent call answered `Async agent launched` sent
   its agent to the background, and the `<task-notification>` naming that call ends it
   (`transcript-parser.ts`).
+- **A backgrounded MCP call and a workflow's stop or pause**: neither the mod API nor the hooks
+  report them. An MCP call whose result says it was moved to or is running in "the background as
+  task <id>" is kept running on the canvas; a `<task-notification>` naming its call or task ends
+  it. The mod and the transcript parser read the same text (MCP_BACKGROUND in
+  `plugin/hooks/register.ts` and `transcript-parser.ts`). With the mod only, as only it shows a
+  workflow's agents: a Workflow call's result gives its run and task, and a notification for that
+  task sets the run's status, `paused` where it says how to resume the run, else its `<status>`.
+  All of it is read from the text Claude Code 2.1.322 writes. Between turns, the time horizon
+  counts a main-agent MCP call in the background as tools at work, not waiting for you, until its
+  notification or the session's end (`time-horizon.ts`).
+- **A refusal without asking** (mod only): a call whose check asked, that no dialog showed for
+  and that was refused, is sent `unasked` (`permissions.denyInsteadOfPrompting`, 2.1.319, or a
+  session nobody can be asked in).
 - **The system prompt's size**: estimated from the text of the `api-request-shape` records
   (2.1.300+), a flat 5,000 tokens before them.
 - **Fast mode's price**: a request whose usage says `speed: "fast"` is priced at twice its model's

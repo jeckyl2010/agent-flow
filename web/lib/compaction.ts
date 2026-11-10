@@ -53,6 +53,7 @@ export const IDLE_COMPACT = { afterS: 54 * 60, minTokens: 200_000 }
 const ACTIVITY = new Set([
   'message', 'tool_call_start', 'tool_call_end', 'model_step', 'agent_spawn', 'agent_complete', 'agent_idle',
   'subagent_dispatch', 'subagent_return', 'permission_requested', 'turn_failed', 'agent_message',
+  'tool_background_end',
 ])
 
 /** Seconds until idle compaction would fold the main conversation if it stays idle, or undefined

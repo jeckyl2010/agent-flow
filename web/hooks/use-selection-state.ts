@@ -10,6 +10,10 @@ export interface ToolDataSnapshot {
   tokenCost?: number
   inputData?: Record<string, unknown>
   readOnly?: boolean
+  blocked?: boolean
+  unasked?: boolean
+  background?: boolean
+  taskId?: string
 }
 
 export interface DiscoveryDataSnapshot {
@@ -102,6 +106,7 @@ export function useSelectionState(deps: {
         setSelectedToolData({
           id: tool.id, toolName: tool.toolName, state: tool.state, args: tool.args,
           result: tool.result, tokenCost: tool.tokenCost, inputData: tool.inputData, readOnly: tool.readOnly,
+          blocked: tool.blocked, unasked: tool.unasked, background: tool.background, taskId: tool.taskId,
         })
       }
     } else {

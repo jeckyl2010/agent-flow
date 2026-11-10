@@ -27,6 +27,8 @@ export function handleAgentSpawn(
   const isFork = payload.fork === true ? true : undefined
   const isBackground = payload.background === true ? true : undefined
   const workflow = asWorkflow(payload.workflow)
+  // An agent of a paused run starting again is its resume: the run runs again
+  if (workflow) setWorkflowStatus(state, workflow.runId, undefined)
   // Where its agent file says it compacts (autoCompactWindow, 2.1.296+), as the bridge mod read it;
   // nowhere where the session's auto-compaction is off
   const isAutoCompactOff = findMain(state.agents)?.autoCompact === false
@@ -171,7 +173,8 @@ export function handleAgentComplete(
     }
 
     for (const [tcId, tc] of state.toolCalls) {
-      if (agentsToComplete.includes(tc.agentId) && tc.state === 'running') {
+      // An MCP call in the background goes on past its agent's turn, until its notification
+      if (agentsToComplete.includes(tc.agentId) && tc.state === 'running' && !tc.background) {
         state.toolCalls.set(tcId, { ...tc, state: 'complete', completeTime: currentTime })
       }
     }
@@ -258,5 +261,22 @@ export function handleModelDetected(
       model,
       tokensMax: ctx.getContextWindowSize(model),
     })
+  }
+}
+
+/** A workflow run stopped, paused, failed or ended (its task notification, 2.1.321): each of its
+ *  agents carries how it stands */
+export function handleWorkflowStatus(payload: Record<string, unknown>, state: MutableEventState): void {
+  const runId = asString(payload.runId)
+  const status = asString(payload.status)
+  if (!runId || !status) return
+  setWorkflowStatus(state, runId, status)
+}
+
+function setWorkflowStatus(state: MutableEventState, runId: string, status: string | undefined): void {
+  for (const [id, a] of state.agents) {
+    if (a.workflow?.runId !== runId || a.workflow.status === status) continue
+    const { status: _old, ...place } = a.workflow
+    state.agents.set(id, { ...a, workflow: status ? { ...place, status } : place })
   }
 }

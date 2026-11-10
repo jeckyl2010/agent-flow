@@ -7,8 +7,8 @@ import {
   type TimelineBlock,
 } from '@/lib/agent-types'
 import type { SimulationState, ConversationMessage } from './types'
-import { handleAgentSpawn, handleAgentComplete, handleAgentIdle, handleAgentStatus, handlePermissionRequested, handleModelDetected } from './handle-agent-events'
-import { handleToolCallStart, handleToolCallEnd } from './handle-tool-events'
+import { handleAgentSpawn, handleAgentComplete, handleAgentIdle, handleAgentStatus, handlePermissionRequested, handleModelDetected, handleWorkflowStatus } from './handle-agent-events'
+import { handleToolCallStart, handleToolCallEnd, handleToolBackgroundEnd } from './handle-tool-events'
 import { handleMessage, handleContextUpdate } from './handle-message-events'
 import { handleContextCompaction, handleSessionMeasure, handleSessionResume, handleAgentMessage, handleTurnFailed } from './handle-session-events'
 import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-events'
@@ -91,6 +91,8 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         case 'session_resume':    handleSessionResume(event.payload, prev.currentTime, state); break
         case 'agent_message':     handleAgentMessage(event.payload, prev.currentTime, state); break
         case 'turn_failed':       handleTurnFailed(event.payload, prev.currentTime, state); break
+        case 'tool_background_end': handleToolBackgroundEnd(event.payload, prev.currentTime, state); break
+        case 'workflow_status':   handleWorkflowStatus(event.payload, state); break
       }
 
       // Stabilize references for unchanged collections to prevent

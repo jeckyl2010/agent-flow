@@ -61,3 +61,27 @@ test('a main turn’s end finishes its subagents, but not those in the backgroun
   assert.equal(endsWithParent({ isBackground: true }, false), false)
   assert.equal(endsWithParent({ isBackground: true }, true), true)
 })
+
+/** The main agent's MCP deploy returns at 3 as moved to the background; its turn ends at 10, and the
+ *  task notification ends the deploy at 60 */
+function deployed(extra: SimulationEvent[] = []): SimulationEvent[] {
+  return [
+    ev(0, 'agent_spawn', { name: 'orchestrator', isMain: true }),
+    ev(0, 'message', { role: 'user' }),
+    ev(2, 'tool_call_start', { tool: 'mcp__staging__deploy' }),
+    ev(3, 'tool_call_end', { tool: 'mcp__staging__deploy', background: true, taskId: 'deploy-41' }),
+    ev(10, 'model_step', { stopReason: 'end_turn', usage: { output_tokens: 0 } }),
+    ...extra,
+  ]
+}
+
+test('an MCP call in the background counts as a tool at work after the turn ends, until its notification', () => {
+  const h = timeHorizon([...deployed(), ev(60, 'tool_background_end', { tool: 'mcp__staging__deploy', taskId: 'deploy-41', status: 'completed' })], 100)
+  assert.deepEqual(h.totals, { thinking: 9, tools: 51, subagents: 0, permission: 0, waiting: 40 })
+})
+
+test('an MCP call that never ends stops counting at the session’s end', () => {
+  const h = timeHorizon([...deployed(), ev(30, 'agent_complete', { name: 'orchestrator', sessionEnd: true })], 100)
+  assert.equal(h.totals.tools, 21)
+  assert.equal(h.totals.waiting, 70)
+})

@@ -5,7 +5,9 @@
  * A turn runs from your message until the model ends its turn (a request that stops with
  * `end_turn`, or Claude Code's Stop hook); outside a turn, the session is waiting for you. Within
  * one, every moment is the most specific thing happening: a permission dialog, then a subagent
- * running, then a tool, and otherwise the model thinking and writing.
+ * running, then a tool, and otherwise the model thinking and writing. Between turns, work left
+ * running in the background is what you wait on: a background subagent, then an MCP call that went
+ * on in the background (2.1.319).
  */
 import { HIDDEN_TOOLS, type SimulationEvent } from './agent-types'
 import { findModel } from './eco-impact'
@@ -166,12 +168,20 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
   const out = new Map<string, SubagentRun>()
   /** Tasks the dispatch named, for the spawn that follows it */
   const dispatched = new Map<string, string>()
+  /** The main agent's MCP calls that went on in the background, by task (or tool), until their
+   *  task notification ends them: a count each, as a key may repeat */
+  const backgroundCalls = new Map<string, number>()
+  const backgroundKey = (p: Record<string, unknown>) => str(p.taskId) || `tool:${str(p.tool)}`
 
   let resume: ResumeMark | undefined
 
   const kindNow = (): TimeKind => {
     // Between turns, a background subagent still out is the one working: you wait on it
-    if (!inTurn) return [...out.values()].some(r => r.background) ? 'subagents' : 'waiting'
+    if (!inTurn) {
+      if ([...out.values()].some(r => r.background)) return 'subagents'
+      // An MCP call in the background is a tool still at work
+      return backgroundCalls.size > 0 ? 'tools' : 'waiting'
+    }
     if (waitingPermission) return 'permission'
     for (const name of running.keys()) if (SUBAGENT_TOOLS.has(name)) return 'subagents'
     return running.size > 0 ? 'tools' : 'thinking'
@@ -256,10 +266,11 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
       case 'agent_complete': {
         const done = out.get(str(p.name))
         if (done) { done.end ??= e.time; out.delete(done.name) }
-        // The session's end is every agent's
+        // The session's end is every agent's, and ends the work it left in the background
         if (p.sessionEnd === true) {
           for (const run of out.values()) run.end ??= e.time
           out.clear()
+          backgroundCalls.clear()
         }
         break
       }
@@ -298,6 +309,18 @@ export function timeHorizon(events: readonly SimulationEvent[], now: number): Ti
           if (starts.length === 0) running.delete(str(p.tool))
         }
         waitingPermission = false
+        // Returned before its result: it runs on in the background
+        if (p.background === true && p.isError !== true) {
+          const key = backgroundKey(p)
+          backgroundCalls.set(key, (backgroundCalls.get(key) ?? 0) + 1)
+        }
+        break
+      }
+      case 'tool_background_end': {
+        const key = backgroundKey(p)
+        const left = (backgroundCalls.get(key) ?? 0) - 1
+        if (left > 0) backgroundCalls.set(key, left)
+        else backgroundCalls.delete(key)
         break
       }
       case 'permission_requested':

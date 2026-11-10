@@ -26,6 +26,8 @@ export type AgentEventType =
   | 'session_resume'
   | 'agent_message'
   | 'turn_failed'
+  | 'tool_background_end'
+  | 'workflow_status'
   | 'error'
 
 export interface AgentEvent {

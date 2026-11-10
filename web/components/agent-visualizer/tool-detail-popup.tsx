@@ -14,6 +14,9 @@ interface ToolDetailPopupProps {
     inputData?: Record<string, unknown>
     readOnly?: boolean
     blocked?: boolean
+    unasked?: boolean
+    background?: boolean
+    taskId?: string
   }
   position: { x: number; y: number }
   onClose: () => void
@@ -34,6 +37,18 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
         <span className="text-[9px] font-mono capitalize" style={{ color: stateColor + '90' }}>
           {tool.state}
         </span>
+        {tool.background && tool.state === 'running' && (
+          <span className="text-[8px] font-mono px-1 rounded" title={`Returned before its result and runs on as a background task${tool.taskId ? ` (${tool.taskId})` : ''}; the result arrives as a task notification`}
+            style={{ color: COLORS.tool_calling, border: `1px solid ${COLORS.tool_calling}40` }}>
+            background
+          </span>
+        )}
+        {tool.unasked && (
+          <span className="text-[8px] font-mono px-1 rounded" title="Refused at a permission check without a dialog: nobody was asked (permissions.denyInsteadOfPrompting, or a session nobody can be asked in)"
+            style={{ color: COLORS.error, border: `1px solid ${COLORS.error}40` }}>
+            unasked
+          </span>
+        )}
         {tool.blocked && (
           <span className="text-[8px] font-mono px-1 rounded" title="Refused before it ran: a deny rule, auto mode, a hook or a dialog’s No. It did nothing"
             style={{ color: COLORS.error, border: `1px solid ${COLORS.error}40` }}>

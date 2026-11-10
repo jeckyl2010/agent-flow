@@ -86,6 +86,8 @@ export const TOOL_CARD_H = 36
 export const TOOL_MIN_DISPLAY_S = 4.0
 /** Seconds before an orphan running tool fades out */
 export const TOOL_MAX_RUNNING_S = 10
+/** How visible an MCP call running in the background stays, its agent having moved on */
+export const TOOL_BACKGROUND_OPACITY = 0.55
 /** Seconds a discovery card stays visible before fading */
 export const DISCOVERY_HOLD_S = 8
 /** Speed multiplier for discovery lerp toward target position */

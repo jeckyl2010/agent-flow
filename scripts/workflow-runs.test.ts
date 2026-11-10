@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import type { Agent } from '../web/lib/agent-types'
-import { asWorkflow, latestOfRun, workflowRuns } from '../web/lib/workflow'
+import { asWorkflow, latestOfRun, workflowRuns, workflowStatusLabel } from '../web/lib/workflow'
 
 const agent = (name: string, parentId: string | null, workflow?: { runId: string; index: number }, opacity = 1) =>
   ({ id: name, name, parentId, opacity, ...(workflow ? { workflow } : {}) }) as Agent
@@ -38,4 +38,12 @@ test('a run is drawn through its visible agents in the order the script started 
   ])
   // One run's agents under another parent are laid out beside it: a line of their own
   assert.deepEqual(runs.map(r => r.map(a => a.name)), [['A #1', 'B #2'], ['C #1'], ['A #4 elsewhere']])
+})
+
+test('a run\'s status reads stopped for a stop, its own word otherwise, nothing while it runs', () => {
+  assert.equal(workflowStatusLabel('killed'), 'stopped')
+  assert.equal(workflowStatusLabel('stopped'), 'stopped')
+  assert.equal(workflowStatusLabel('paused'), 'paused')
+  assert.equal(workflowStatusLabel('failed'), 'failed')
+  assert.equal(workflowStatusLabel(undefined), undefined)
 })

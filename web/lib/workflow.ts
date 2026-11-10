@@ -28,6 +28,12 @@ export function latestOfRun(agents: Iterable<Agent>, parentId: string, workflow:
   return latest
 }
 
+/** How a run's status reads: a pause and a stop by their words, others as the notification says */
+export function workflowStatusLabel(status: string | undefined): string | undefined {
+  if (!status) return undefined
+  return status === 'killed' || status === 'stopped' ? 'stopped' : status
+}
+
 /** Each workflow run's visible agents under one parent, in the order its script started them: as
  *  they are laid out, beside their parent */
 export function workflowRuns(agents: Iterable<Agent>): Agent[][] {

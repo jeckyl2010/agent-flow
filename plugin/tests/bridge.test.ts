@@ -525,3 +525,60 @@ test('a compaction’s end carries what its summary cost', async ($, on) => {
 
   expect(posts.map(p => p.body).find(b => b.hook_event_name === 'Compaction' && b.phase === 'end')!.usage).toEqual(usage)
 })
+
+test('an MCP call moved to the background is sent as such, and its result when the task notification brings it', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('tool.call', () => ({
+    result: {} as never,
+    text: 'MCP tool "mcp__reports__export" is still running after 120s. It was moved to the background as task m7q2 and keeps running.',
+  }) as never)
+  on('prompt.submit', (_$, e) => ({ text: e.text }) as never)
+
+  await $.tool.call({ tool: 'mcp__reports__export', tool_use_id: 'tu-mcp' } as never)
+  await $.prompt.submit({ text: '<task-notification>\n<task-id>m7q2</task-id>\n<tool-use-id>tu-mcp</tool-use-id>\n<status>completed</status>\n<summary>MCP task m7q2 (reports/export) completed</summary>\n</task-notification>' } as never)
+  await clock.settle()
+
+  const bodies = posts.map(p => p.body)
+  expect(bodies.find(b => b.hook_event_name === 'PostToolUse')).toEqual(expect.objectContaining({
+    tool_use_id: 'tu-mcp', background: true, task_id: 'm7q2',
+  }))
+  expect(bodies.find(b => b.hook_event_name === 'BackgroundToolEnd')).toEqual(expect.objectContaining({
+    tool_name: 'mcp__reports__export', tool_use_id: 'tu-mcp', task_id: 'm7q2', status: 'completed',
+    summary: 'MCP task m7q2 (reports/export) completed',
+  }))
+})
+
+test('a workflow run stopped or paused is sent with its run', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  on('tool.call', (_$, e) => ({
+    result: { status: 'async_launched', taskId: e.tool_use_id === 'tu-a' ? 'wt-a' : 'wt-b', runId: e.tool_use_id === 'tu-a' ? 'run-a' : 'run-b' } as never,
+    text: 'Workflow launched',
+  }) as never)
+  on('prompt.submit', (_$, e) => ({ text: e.text }) as never)
+
+  await $.tool.call({ tool: 'Workflow', script: '…', tool_use_id: 'tu-a' } as never)
+  await $.tool.call({ tool: 'Workflow', script: '…', tool_use_id: 'tu-b' } as never)
+  await $.prompt.submit({ text: '<task-notification><task-id>wt-a</task-id><status>killed</status><summary>Workflow "review" was stopped</summary></task-notification>' } as never)
+  await $.prompt.submit({ text: '<task-notification><task-id>wt-b</task-id><status>killed</status><summary>Workflow "audit" paused</summary><result>Resume the paused workflow by calling: Workflow({ resumeFromRunId: "run-b" })</result></task-notification>' } as never)
+  await clock.settle()
+
+  const statuses = posts.map(p => p.body).filter(b => b.hook_event_name === 'WorkflowStatus')
+  expect(statuses.map(b => [b.workflow_run_id, b.status])).toEqual([['run-a', 'killed'], ['run-b', 'paused']])
+})
+
+test('a call refused with no dialog shown says it was refused without asking', async ($, on) => {
+  const { clock, posts } = agentFlow(on)
+  // Its check asks, and no dialog shows: the refusal reaches the call as the errored result the
+  // model reads (under the kit, a later check allows, so the test's tool hook gives that result)
+  let checks = 0
+  on('tool.check', () => (checks++ === 0 ? { decision: 'ask', reason: 'Writes outside the project' } : { decision: 'allow' }) as never)
+  on('tool.call', () => ({ result: {} as never, isError: true, text: 'Refused without asking: permissions.denyInsteadOfPrompting is on' }) as never)
+
+  await $.tool.check({ tool: 'Bash', input: {}, tool_use_id: 'tu-1' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/x', tool_use_id: 'tu-1' } as never).catch(() => undefined)
+  await $.tool.call({ tool: 'Bash', command: 'false', tool_use_id: 'tu-2' } as never).catch(() => undefined)
+  await clock.settle()
+
+  const ends = posts.map(p => p.body).filter(b => b.hook_event_name === 'PostToolUseFailure')
+  expect(ends.map(b => [b.tool_use_id, b.blocked, b.unasked])).toEqual([['tu-1', true, true], ['tu-2', undefined, undefined]])
+})

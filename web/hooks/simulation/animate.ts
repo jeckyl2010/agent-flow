@@ -1,6 +1,6 @@
 import type { SimulationState } from './types'
 import {
-  TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S,
+  TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S, TOOL_BACKGROUND_OPACITY,
   DISCOVERY_HOLD_S, DISCOVERY_LERP_SPEED,
   BUBBLE_VISIBLE_S, MOCK_END_BUFFER_S,
   ANIM_SPEED,
@@ -54,7 +54,12 @@ function animateToolCalls(toolCalls: SimulationState['toolCalls'], deltaTime: nu
   let newToolCalls = toolCalls
   for (const [id, tc] of toolCalls) {
     let newOpacity = tc.opacity
-    if (tc.state === 'running') {
+    if (tc.state === 'running' && tc.background) {
+      // Shown for as long as the task runs, dimmed: its agent has moved on
+      newOpacity = tc.opacity > TOOL_BACKGROUND_OPACITY
+        ? Math.max(TOOL_BACKGROUND_OPACITY, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
+        : Math.min(TOOL_BACKGROUND_OPACITY, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
+    } else if (tc.state === 'running') {
       const runningSince = newTime - tc.startTime
       if (runningSince > TOOL_MAX_RUNNING_S) {
         newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
