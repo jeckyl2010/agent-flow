@@ -94,7 +94,9 @@ Some things neither source states. These are the places to look first when Claud
   `plugin/hooks/register.ts` and `transcript-parser.ts`). With the mod only, as only it shows a
   workflow's agents: a Workflow call's result gives its run and task, and a notification for that
   task sets the run's status, `paused` where it says how to resume the run, else its `<status>`.
-  All of it is read from the text Claude Code 2.1.322 writes.
+  All of it is read from the text Claude Code 2.1.322 writes. Between turns, the time horizon
+  counts a main-agent MCP call in the background as tools at work, not waiting for you, until its
+  notification or the session's end (`time-horizon.ts`).
 - **A refusal without asking** (mod only): a call whose check asked, that no dialog showed for
   and that was refused, is sent `unasked` (`permissions.denyInsteadOfPrompting`, 2.1.319, or a
   session nobody can be asked in).
