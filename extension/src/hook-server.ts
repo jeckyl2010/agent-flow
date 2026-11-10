@@ -60,6 +60,15 @@ interface HookPayload {
   read_only?: boolean
   /** PostToolUseFailure (mod only): the call was refused before it ran, so it did nothing */
   blocked?: boolean
+  /** PostToolUseFailure (mod only): refused at an ask no dialog showed for: nobody was asked
+   *  (`permissions.denyInsteadOfPrompting`, 2.1.319, or a session nobody can be asked in) */
+  unasked?: boolean
+  /** PostToolUse (mod only): an MCP call that returned before its result, which goes on in the
+   *  background as a task (2.1.319); BackgroundToolEnd brings the result */
+  task_id?: string
+  // BackgroundToolEnd and WorkflowStatus (mod only): how the background task ended, from its
+  // notification; WorkflowStatus's run (stopped or paused, 2.1.321) is `workflow_run_id`
+  summary?: string
   // Notification
   notification_type?: string
   message?: string
@@ -325,6 +334,12 @@ export class HookServer implements vscode.Disposable {
       case 'AgentMessage':
         this.handleAgentMessage(payload)
         break
+      case 'BackgroundToolEnd':
+        this.handleBackgroundToolEnd(payload)
+        break
+      case 'WorkflowStatus':
+        this.handleWorkflowStatus(payload)
+        break
     }
   }
 
@@ -432,7 +447,36 @@ export class HookServer implements vscode.Disposable {
         tokenCost,
         ...(discovery ? { discovery } : {}),
         ...(payload.read_only === true ? { readOnly: true } : {}),
+        ...(payload.background === true ? { background: true, ...(payload.task_id ? { taskId: payload.task_id } : {}) } : {}),
       },
+    }, payload.session_id)
+  }
+
+  /** An MCP call that went on in the background has ended: its result, from the task notification */
+  private handleBackgroundToolEnd(payload: HookPayload): void {
+    const status = payload.status || 'completed'
+    const result = payload.tool_response ? summarizeResult(payload.tool_response) : payload.summary || status
+    this.emit({
+      time: this.elapsedSeconds(payload.session_id),
+      type: 'tool_background_end',
+      payload: {
+        agent: this.resolveAgentName(payload),
+        tool: payload.tool_name || 'unknown',
+        ...(payload.task_id ? { taskId: payload.task_id } : {}),
+        status,
+        result: result.slice(0, RESULT_MAX),
+        isError: status === 'failed',
+      },
+    }, payload.session_id)
+  }
+
+  /** A workflow run ended, was stopped, or was paused to be resumed later */
+  private handleWorkflowStatus(payload: HookPayload): void {
+    if (!payload.workflow_run_id || !payload.status) return
+    this.emit({
+      time: this.elapsedSeconds(payload.session_id),
+      type: 'workflow_status',
+      payload: { runId: payload.workflow_run_id, status: payload.status, ...(payload.summary ? { summary: payload.summary.slice(0, ARGS_MAX) } : {}) },
     }, payload.session_id)
   }
 
@@ -457,6 +501,7 @@ export class HookServer implements vscode.Disposable {
         errorMessage: reason.slice(0, FAILED_RESULT_MAX) || undefined,
         ...(payload.read_only === true ? { readOnly: true } : {}),
         ...(payload.blocked === true ? { blocked: true } : {}),
+        ...(payload.unasked === true ? { unasked: true } : {}),
       },
     }, payload.session_id)
   }

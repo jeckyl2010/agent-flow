@@ -255,7 +255,8 @@ const MODEL_STEPS: SimulationEvent[] = [
 // compaction, here at the 50K that CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS sets. On 2.1.304: a resumed
 // conversation and what re-caching it cost, a fork, an agent at work in the background after the
 // turn ends, reads the tools held read-only, a hook's ask only you can answer, and what each
-// compaction's summary cost.
+// compaction's summary cost. On 2.1.319: an MCP call that runs on in the background, and a call
+// refused without asking anyone.
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
 const minutesAhead = (m: number) => new Date(Date.now() + m * 60_000).toISOString()
 
@@ -329,6 +330,15 @@ const BRIDGE_EVENTS: SimulationEvent[] = [
   step(46.0, 'research-agent', 'end_turn', 200, 420, 12_100, 300, 'high', 'claude-haiku-4-5'),
   { time: 46.3, type: 'subagent_return', payload: { child: 'research-agent', parent: 'orchestrator', summary: 'Send a PayPal-Request-Id header with each capture: a retry then returns the first result' } },
   { time: 46.3, type: 'agent_complete', payload: { name: 'research-agent' } },
+
+  // (2.1.319) A preview deploy through an MCP server outlasts two minutes: the call returns and the
+  // deploy runs on in the background, its card kept until the task notification brings the result.
+  // A force-push is refused at its permission check with nobody asked (denyInsteadOfPrompting)
+  { time: 47.0, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'mcp__staging__deploy_preview', args: 'payments branch', inputData: { branch: 'payments' } } },
+  { time: 47.5, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'mcp__staging__deploy_preview', result: 'Moved to the background as task deploy-41', tokenCost: 60, background: true, taskId: 'deploy-41' } },
+  { time: 48.4, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', args: 'git push --force origin payments', inputData: { command: 'git push --force origin payments' } } },
+  { time: 48.6, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Bash', result: '[BLOCKED] Refused without asking', tokenCost: 0, isError: true, blocked: true, unasked: true, errorMessage: 'Refused without asking: permissions.denyInsteadOfPrompting is on' } },
+  { time: 66.2, type: 'tool_background_end', payload: { agent: 'orchestrator', tool: 'mcp__staging__deploy_preview', taskId: 'deploy-41', status: 'completed', result: 'Preview live at payments.preview.example.com' } },
 
   // The schema needs the new providers: a PreToolUse hook asks before any migration runs, and only
   // you can answer it, not auto mode's classifier

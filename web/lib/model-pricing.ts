@@ -11,8 +11,10 @@
  * prompt is the request's whole input, cache reads and writes included; output and the cache's
  * rates follow the card the prompt chose.
  *
- * A request in fast mode (Opus 5.5, Opus 5 and Opus 4.8, on Anthropic's API) is billed at twice
- * the model's card, cache reads and writes too; the API's usage says so (`speed: "fast"`).
+ * A request in fast mode (Opus 5.5, Opus 5 and Opus 4.8, on Anthropic's API and since 2.1.322 on
+ * Vertex) is billed at twice the model's card, cache reads and writes too; the API's usage says so
+ * (`speed: "fast"`). Since 2.1.321 fast mode falls back to standard speed on the same model when
+ * fast serving is busy, so a session mixes the two: each request is priced at its own speed.
  */
 
 import { canonicalModelId } from './utils'
@@ -65,6 +67,7 @@ interface LongContextPrice {
 }
 
 const MODEL_PRICES: ReadonlyArray<{ pattern: RegExp; price: ModelPrice; longContext?: LongContextPrice }> = [
+  { pattern: /(fable|mythos)-5-2/, price: { input: 8, output: 40, cacheRead: 0.2 } }, // 2.1.321, `fable` since
   { pattern: /(fable|mythos)-5-1/, price: { input: 10, output: 50, cacheRead: 0.25 } },
   { pattern: /(fable|mythos)-5/, price: { input: 10, output: 50, cacheRead: 1 } },
   { pattern: /opus-5-5/, price: { input: 4, output: 20, cacheRead: 0.2 } },

@@ -18,6 +18,9 @@ export interface ContextBreakdown {
 export interface WorkflowPlace {
   runId: string
   index: number
+  /** How the run stands when it didn't simply run on: `paused` (to be resumed under the same run)
+   *  or stopped (`killed`), `failed`, `completed`, from its task notification (2.1.321) */
+  status?: string
 }
 
 export interface Agent {
@@ -256,6 +259,13 @@ export interface ToolCallNode {
   /** Refused before it ran (a deny rule, auto mode, a hook, a dialog's No), so it did nothing (the
    *  bridge mod) */
   blocked?: boolean
+  /** Refused at an ask no dialog showed for, so nobody was asked (`permissions.denyInsteadOfPrompting`,
+   *  2.1.319, or a session nobody can be asked in) */
+  unasked?: boolean
+  /** An MCP call that returned before its result and goes on in the background as a task (2.1.319):
+   *  it stays `running` until its task notification ends it, while its agent works on */
+  background?: boolean
+  taskId?: string
   x: number
   y: number
   startTime: number
@@ -367,6 +377,8 @@ export interface SimulationEvent {
     | 'session_resume'
     | 'agent_message'
     | 'turn_failed'
+    | 'tool_background_end'
+    | 'workflow_status'
   payload: Record<string, unknown>
   sessionId?: string
 }

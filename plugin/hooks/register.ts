@@ -111,6 +111,23 @@ const asks = new Map<string, {
 }>()
 /** tool_use_ids of the calls whose tool held their input read-only (2.1.304+), until the call ends */
 const readOnly = new Set<string>()
+/** tool_use_ids of the asks a permission dialog showed for, until the call ends: an ask refused
+ *  with none shown was refused without asking (`permissions.denyInsteadOfPrompting`, 2.1.319, or a
+ *  session nobody can be asked in) */
+const shownAsks = new Set<string>()
+/** An MCP call that returned before its result: moved to the background after two minutes, or run
+ *  by its server as an MCP task (2.1.319 in the terminal). tool_use_id → its call, until a task
+ *  notification brings the result */
+const backgroundMcp = new Map<string, { tool: string; taskId?: string; agentId?: string }>()
+/** A Workflow call's run (2.1.292+), by the background task it runs as: a notification names the
+ *  task, a run's agents their run. Kept after a pause, which a resume under the same run follows */
+const workflowTasks = new Map<string, { runId: string; toolUseId?: string }>()
+/** What an MCP call returns when it goes on in the background: the task it runs as */
+const MCP_BACKGROUND = /\b(?:moved to|running in) the background as task (\S+?)[.,;:]?(?:\s|$)/
+/** What a call refused at its permission check tells the model */
+const REFUSAL = /\b(denied|refused)\b/i
+/** A task notification, one of possibly several in a message */
+const TASK_NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/g
 /**
  * How this session reaches Claude, as Claude Code's environment sets it up: Anthropic's API, or
  * Amazon Bedrock, Google Vertex AI or Microsoft Foundry, and the region. The footprint is figured
@@ -197,6 +214,9 @@ export const register: Register = (on, options) => {
     agentTypes.clear()
     asks.clear()
     readOnly.clear()
+    shownAsks.clear()
+    backgroundMcp.clear()
+    workflowTasks.clear()
     teammates.clear()
     statuses.clear()
     descriptions.clear()
@@ -224,13 +244,27 @@ export const register: Register = (on, options) => {
       const ran = await next(e)
       // Its permission check ran inside the call, so whether it was a read is known by its end
       const ended = { ...call, ...(tool_use_id && readOnly.has(tool_use_id) ? { read_only: true } : {}) }
-      if (ran.deny !== undefined) {
+      // An ask no dialog showed for, then refused, was refused without asking anyone. The refusal
+      // reaches this hook as a deny, or as the errored result a refused call gives the model
+      const isAskUnshown = !!tool_use_id && asks.has(tool_use_id) && !shownAsks.has(tool_use_id)
+      const isUnasked = isAskUnshown && (ran.deny !== undefined || (ran.isError === true && REFUSAL.test(ran.text ?? '')))
+      if (ran.deny !== undefined || isUnasked) {
         // Refused before it ran (a deny rule, auto mode, a hook, a dialog's No): it did nothing
-        send($, { hook_event_name: 'PostToolUseFailure', ...ended, error: ran.deny, blocked: true })
+        send($, {
+          hook_event_name: 'PostToolUseFailure', ...ended, error: ran.deny ?? ran.text ?? '', blocked: true,
+          ...(isUnasked ? { unasked: true } : {}),
+        })
       } else if (ran.isError) {
         send($, { hook_event_name: 'PostToolUseFailure', ...ended, error: ran.text ?? '' })
       } else {
-        send($, { hook_event_name: 'PostToolUse', ...ended, tool_response: ran.text ?? '' })
+        const text = ran.text ?? ''
+        const moved = tool.startsWith('mcp__') && tool_use_id ? MCP_BACKGROUND.exec(text) : null
+        if (moved && tool_use_id) backgroundMcp.set(tool_use_id, { tool, taskId: moved[1], agentId })
+        if (tool === 'Workflow') rememberWorkflow(ran.result, tool_use_id)
+        send($, {
+          hook_event_name: 'PostToolUse', ...ended, tool_response: text,
+          ...(moved ? { background: true, task_id: moved[1] } : {}),
+        })
       }
       return ran
     } catch (error) {
@@ -244,6 +278,7 @@ export const register: Register = (on, options) => {
       if (tool_use_id) {
         asks.delete(tool_use_id)
         readOnly.delete(tool_use_id)
+        shownAsks.delete(tool_use_id)
       }
     }
   })
@@ -270,6 +305,7 @@ export const register: Register = (on, options) => {
   on('classic.PermissionRequest', async ($, e, next) => {
     // The dialog's event names no call: it is the latest ask for this tool in this agent's loop
     const asked = [...asks].reverse().find(([, a]) => a.tool === e.tool_name && a.agentId === e.agent_id)
+    if (asked) shownAsks.add(asked[0])
     send($, {
       hook_event_name: 'PermissionRequest',
       tool_name: e.tool_name, tool_input: e.tool_input, ...agentFields(e.agent_id),
@@ -293,6 +329,14 @@ export const register: Register = (on, options) => {
         ...(e.estimated_cache_write_usd !== undefined ? { estimated_cache_write_usd: e.estimated_cache_write_usd } : {}),
       })
     }
+    return next(e)
+  })
+
+  // A background task's end reaches the conversation as a task notification: the result of an MCP
+  // call that went on in the background, or a workflow run that ended, was stopped or (2.1.321,
+  // when Claude is told so) paused
+  on('prompt.submit', async ($, e, next) => {
+    if (e.origin?.kind === 'task-notification' || e.text.includes('<task-notification>')) readTaskNotifications($, e.text)
     return next(e)
   })
 
@@ -544,6 +588,49 @@ function sendServerToolUse($: EngineInterface, use: TurnStepServerToolUse, agent
     send($, { hook_event_name: 'PostToolUseFailure', ...call, error: 'The response ended before its result', is_interrupt: true })
   } else {
     send($, { hook_event_name: 'PostToolUse', ...call, tool_response: '' })
+  }
+}
+
+/** The run a Workflow call started, by the task it runs as */
+function rememberWorkflow(result: unknown, toolUseId: string | undefined): void {
+  if (!result || typeof result !== 'object') return
+  const { runId, taskId } = result as { runId?: unknown; taskId?: unknown }
+  if (typeof runId === 'string' && runId && typeof taskId === 'string' && taskId) {
+    workflowTasks.set(taskId, { runId, ...(toolUseId ? { toolUseId } : {}) })
+  }
+}
+
+/** Sends what each task notification in `text` ends: a background MCP call's result, or a
+ *  workflow run's status */
+function readTaskNotifications($: EngineInterface, text: string): void {
+  for (const [, body] of text.matchAll(TASK_NOTIFICATION)) {
+    const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(body!)?.[1]?.trim()
+    const taskId = tag('task-id')
+    const toolUseId = tag('tool-use-id')
+    const summary = tag('summary')?.slice(0, OUTPUT_MAX)
+    // A pause tells Claude how to resume the run, where its status may say only that it stopped
+    const status = /Resume the paused workflow/.test(body!) ? 'paused' : tag('status') ?? 'completed'
+
+    const mcpId = toolUseId && backgroundMcp.has(toolUseId) ? toolUseId
+      : [...backgroundMcp].find(([, c]) => c.taskId && c.taskId === taskId)?.[0]
+    if (mcpId) {
+      const call = backgroundMcp.get(mcpId)!
+      backgroundMcp.delete(mcpId)
+      send($, {
+        hook_event_name: 'BackgroundToolEnd', tool_name: call.tool, tool_use_id: mcpId,
+        ...(call.taskId ? { task_id: call.taskId } : {}), status,
+        ...(summary ? { summary } : {}), ...(tag('result') ? { tool_response: tag('result')!.slice(0, OUTPUT_MAX) } : {}),
+        ...agentFields(call.agentId),
+      })
+      continue
+    }
+
+    const run = taskId ? workflowTasks.get(taskId)
+      : [...workflowTasks.values()].find(w => w.toolUseId && w.toolUseId === toolUseId)
+    if (run) {
+      if (status !== 'paused' && taskId) workflowTasks.delete(taskId)
+      send($, { hook_event_name: 'WorkflowStatus', workflow_run_id: run.runId, status, ...(summary ? { summary } : {}) })
+    }
   }
 }
 

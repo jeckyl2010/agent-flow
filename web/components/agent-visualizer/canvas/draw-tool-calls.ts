@@ -49,13 +49,16 @@ export function drawToolCalls(
 
     ctx.shadowBlur = 0
 
-    // Spinning ring
+    // Spinning ring; a call in the background turns slowly on a dashed ring
     if (isRunning) {
+      const spin = time * TOOL_DRAW.spinSpeed * (tool.background ? 0.25 : 1)
       ctx.beginPath()
-      ctx.arc(tool.x, tool.y, Math.max(cardW, cardH) / 2 + TOOL_DRAW.spinRingPadding, time * TOOL_DRAW.spinSpeed, time * TOOL_DRAW.spinSpeed + TOOL_DRAW.spinArc)
+      ctx.arc(tool.x, tool.y, Math.max(cardW, cardH) / 2 + TOOL_DRAW.spinRingPadding, spin, spin + (tool.background ? Math.PI * 2 : TOOL_DRAW.spinArc))
       ctx.strokeStyle = COLORS.tool + '50'
       ctx.lineWidth = 1.5
+      if (tool.background) ctx.setLineDash([3, 4])
       ctx.stroke()
+      ctx.setLineDash([])
     }
 
     // Crack lines for errors
@@ -81,10 +84,10 @@ export function drawToolCalls(
 
     if (isRunning) {
       ctx.fillStyle = COLORS.tool
-      ctx.fillText(truncatedLabel, tool.x, tool.y)
+      ctx.fillText(tool.background ? truncateText(ctx, `⧗ ${toolLabel}`, cardW - 8) : truncatedLabel, tool.x, tool.y)
     } else if (isError) {
       ctx.fillStyle = COLORS.error
-      ctx.fillText(truncateText(ctx, `${tool.toolName}: FAILED`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
+      ctx.fillText(truncateText(ctx, `${tool.toolName}: ${tool.unasked ? 'REFUSED UNASKED' : 'FAILED'}`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
       ctx.fillStyle = COLORS.error + 'aa'
       ctx.fillText(truncateText(ctx, tool.errorMessage || tool.result || '', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)

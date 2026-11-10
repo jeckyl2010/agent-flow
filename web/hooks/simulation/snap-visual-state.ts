@@ -1,5 +1,5 @@
 import type { SimulationState } from './types'
-import { TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S, DISCOVERY_HOLD_S, BUBBLE_VISIBLE_S, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
+import { TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S, TOOL_BACKGROUND_OPACITY, DISCOVERY_HOLD_S, BUBBLE_VISIBLE_S, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 
 /** Snap visual properties to their analytically correct values at a given time (used during seek) */
 export function snapVisualState(state: SimulationState, targetTime: number): SimulationState {
@@ -28,7 +28,9 @@ export function snapVisualState(state: SimulationState, targetTime: number): Sim
   const newToolCalls = new Map(state.toolCalls)
   for (const [id, tc] of newToolCalls) {
     const snapped = { ...tc }
-    if (tc.state === 'running') {
+    if (tc.state === 'running' && tc.background) {
+      snapped.opacity = TOOL_BACKGROUND_OPACITY
+    } else if (tc.state === 'running') {
       snapped.opacity = (targetTime - tc.startTime) > TOOL_MAX_RUNNING_S ? 0 : 1
     } else {
       const timeSinceComplete = targetTime - (tc.completeTime ?? 0)

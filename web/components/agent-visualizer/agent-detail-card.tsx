@@ -1,3 +1,4 @@
+import { workflowStatusLabel } from '@/lib/workflow'
 import { CARD, Z, type AgentState, type Compaction, type TurnFailure, type WorkflowPlace } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName } from '@/lib/utils'
@@ -116,7 +117,7 @@ export function AgentDetailCard({
         {agent.isBackground && <span style={{ color: COLORS.textMuted }} title="Works on after the turn that started it ends">background</span>}
         {agent.workflow && (
           <span style={{ color: COLORS.textMuted }} title={`Agent #${agent.workflow.index} of workflow run ${agent.workflow.runId}`}>
-            workflow
+            workflow{workflowStatusLabel(agent.workflow.status) ? ` · ${workflowStatusLabel(agent.workflow.status)}` : ''}
           </span>
         )}
       </div>

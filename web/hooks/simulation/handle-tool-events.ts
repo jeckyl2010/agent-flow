@@ -1,5 +1,5 @@
 import { COLORS } from '@/lib/colors'
-import { HIDDEN_TOOLS } from '@/lib/agent-types'
+import { HIDDEN_TOOLS, type ToolCallNode } from '@/lib/agent-types'
 import { TOOL_DEDUP_WINDOW_S } from '@/lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { appendConversation, asString, asBoolean, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
@@ -28,7 +28,7 @@ export function handleToolCallStart(
     // created within the last 3 seconds (race between Hook Server and Session Watcher)
     let isDuplicate = false
     for (const tc of state.toolCalls.values()) {
-      if (tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running' && (currentTime - tc.startTime) < TOOL_DEDUP_WINDOW_S) {
+      if (tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running' && !tc.background && (currentTime - tc.startTime) < TOOL_DEDUP_WINDOW_S) {
         isDuplicate = true
         break
       }
@@ -112,6 +112,10 @@ export function handleToolCallEnd(
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
   const readOnly = payload.readOnly === true
   const blocked = isError && payload.blocked === true
+  const unasked = blocked && payload.unasked === true
+  // An MCP call that returned before its result: it goes on in the background, the agent with it
+  const background = !isError && payload.background === true
+  const taskId = typeof payload.taskId === 'string' ? payload.taskId : undefined
   const agent = state.agents.get(agentName)
 
   if (agent) {
@@ -127,12 +131,17 @@ export function handleToolCallEnd(
 
     const toolState: 'error' | 'complete' = isError ? 'error' : 'complete'
     for (const [id, tc] of state.toolCalls) {
-      if (tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running') {
+      if (tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running' && !tc.background) {
+        if (background) {
+          state.toolCalls.set(id, { ...tc, background: true, ...(taskId ? { taskId } : {}), result, tokenCost })
+          break
+        }
         state.toolCalls.set(id, {
           ...tc, state: toolState, completeTime: currentTime, result, tokenCost,
           errorMessage: isError ? (errorMessage || result) : undefined,
           ...(readOnly ? { readOnly } : {}),
           ...(blocked ? { blocked } : {}),
+          ...(unasked ? { unasked } : {}),
         })
 
         const edgeId = `edge-${id}`
@@ -158,7 +167,7 @@ export function handleToolCallEnd(
         const lastBlock = entry.blocks.at(-1)
         if (lastBlock && !lastBlock.endTime) {
           lastBlock.color = COLORS.error
-          lastBlock.label = `${toolName}: ${blocked ? 'BLOCKED' : 'FAILED'}`
+          lastBlock.label = `${toolName}: ${unasked ? 'REFUSED UNASKED' : blocked ? 'BLOCKED' : 'FAILED'}`
         }
       }
       pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: COLORS.thinking }, ctx)
@@ -178,9 +187,56 @@ export function handleToolCallEnd(
 
     appendConversation(state.conversations, agentName, {
       type: 'tool_result',
-      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens)` : ''}`,
+      content: background
+        ? `< in the background${taskId ? ` as task ${taskId}` : ''}`
+        : `< ${result}${tokenCost ? ` (${tokenCost} tokens)` : ''}`,
       timestamp: currentTime,
       toolName,
     })
   }
+}
+
+/** An MCP call that went on in the background has ended (its task notification): the card it kept
+ *  completes, and the result travels back to its agent */
+export function handleToolBackgroundEnd(
+  payload: Record<string, unknown>,
+  currentTime: number,
+  state: MutableEventState,
+): void {
+  const agentName = asString(payload.agent)
+  const toolName = asString(payload.tool)
+  const taskId = typeof payload.taskId === 'string' ? payload.taskId : undefined
+  const status = asString(payload.status, 'completed')
+  const result = asString(payload.result, status)
+  const isError = asBoolean(payload.isError)
+
+  let found: [string, ToolCallNode] | undefined
+  for (const entry of state.toolCalls) {
+    const tc = entry[1]
+    if (!tc.background || tc.state !== 'running' || tc.agentId !== agentName || tc.toolName !== toolName) continue
+    if (taskId && tc.taskId && tc.taskId !== taskId) continue
+    found = entry
+    break
+  }
+  if (found) {
+    const [id, tc] = found
+    state.toolCalls.set(id, {
+      ...tc, state: isError ? 'error' : 'complete', completeTime: currentTime, result,
+      errorMessage: isError ? result : undefined,
+    })
+    state.particles.push({
+      id: `p-tr-${currentTime}-${id}`,
+      edgeId: `edge-${id}`, progress: 1,
+      type: 'tool_return', color: isError ? COLORS.error : COLORS.return,
+      size: 4, trailLength: 0.15,
+      label: result.slice(0, LABEL_LEN_PARTICLE),
+    })
+  }
+
+  appendConversation(state.conversations, agentName, {
+    type: 'tool_result',
+    content: `< ${toolName} ${status} in the background: ${result}`,
+    timestamp: currentTime,
+    toolName,
+  })
 }
