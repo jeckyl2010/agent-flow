@@ -13,6 +13,8 @@ interface BridgeHookResult {
   useMockData: boolean
   /** Whether CLAUDE_CODE_DISABLE_1M_CONTEXT=1 is set — caps context window to 200k */
   disable1MContext: boolean
+  /** CLAUDE_CODE_MAX_CONTEXT_TOKENS, where it's set */
+  maxContextTokens: number | undefined
   /** Open a file in the VS Code editor */
   bridgeOpenFile: (filePath: string, line?: number) => void
   /** Known sessions from the extension */
@@ -48,6 +50,7 @@ export function useVSCodeBridge(): BridgeHookResult {
     import.meta.env.AGENT_FLOW_DEMO !== '0'
   )
   const [disable1MContext, setDisable1MContext] = useState(false)
+  const [maxContextTokens, setMaxContextTokens] = useState<number | undefined>(undefined)
   const pendingEventsRef = useRef<SimulationEvent[]>([])
   const [, setEventVersion] = useState(0) // trigger re-render on new events
 
@@ -160,6 +163,7 @@ export function useVSCodeBridge(): BridgeHookResult {
     const unsubConfig = bridge.onConfig((config) => {
       if (config.showMockData !== undefined) { setUseMockData(config.showMockData) }
       if (config.disable1MContext !== undefined) { setDisable1MContext(config.disable1MContext) }
+      if (config.maxContextTokens !== undefined) { setMaxContextTokens(config.maxContextTokens) }
     })
 
     // Session lifecycle tracking
@@ -303,6 +307,7 @@ export function useVSCodeBridge(): BridgeHookResult {
     consumeEvents,
     useMockData,
     disable1MContext,
+    maxContextTokens,
     bridgeOpenFile,
     sessions,
     selectedSessionId,

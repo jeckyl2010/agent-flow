@@ -30,9 +30,9 @@ export const MODEL_FAMILY_CONTEXT: ReadonlyArray<{ pattern: RegExp; size: number
   // authoritative window via event_msg.token_count.info.model_context_window.
   { pattern: /gpt-\d/, size: 400_000 },
 ]
-/** Used when no family pattern matches (unknown model). */
+/** The most any window is with CLAUDE_CODE_DISABLE_1M_CONTEXT set */
 export const DEFAULT_CONTEXT_SIZE = 200_000
-/** Used when no model ID is available at all. */
+/** A model ID no family pattern matches, or none at all (200K before Claude Code 2.1.326) */
 export const FALLBACK_CONTEXT_SIZE = 1_000_000
 
 // ─── Visibility threshold ───────────────────────────────────────────────────

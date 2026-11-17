@@ -63,6 +63,8 @@ export interface VisualizerConfig {
   autoPlay: boolean
   showMockData: boolean
   disable1MContext: boolean
+  /** CLAUDE_CODE_MAX_CONTEXT_TOKENS: the window of a `claude-` model ID Claude Code doesn't recognize */
+  maxContextTokens?: number
 }
 
 // ─── Webview → Extension Messages ────────────────────────────────────────────

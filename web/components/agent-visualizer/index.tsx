@@ -65,6 +65,7 @@ export function AgentVisualizer() {
     // so the animation frame never uses a stale filter value.
     sessionFilterRef: bridge.selectedSessionIdRef,
     disable1MContext: bridge.disable1MContext,
+    maxContextTokens: bridge.maxContextTokens,
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })

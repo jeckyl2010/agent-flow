@@ -123,4 +123,6 @@ export interface UseAgentSimulationOptions {
   sessionFilterRef?: React.RefObject<string | null>
   /** If true, CLAUDE_CODE_DISABLE_1M_CONTEXT is set — cap context window to 200k */
   disable1MContext?: boolean
+  /** CLAUDE_CODE_MAX_CONTEXT_TOKENS: the window of a `claude-` model ID Claude Code doesn't recognize */
+  maxContextTokens?: number
 }

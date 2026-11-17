@@ -281,6 +281,8 @@ export class HookServer implements vscode.Disposable {
 
     switch (eventName) {
       case 'SessionStart':
+        // A subagent's, after it compacted (2.1.326 names it): no session starts
+        if (payload.agent_id) break
         this.handleSessionStart(payload)
         this.handleSessionResume(payload)
         break

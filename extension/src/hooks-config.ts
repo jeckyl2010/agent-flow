@@ -203,6 +203,16 @@ export function isDisable1MContext(): boolean {
   return (settings?.env as Record<string, unknown>)?.CLAUDE_CODE_DISABLE_1M_CONTEXT === '1'
 }
 
+/** CLAUDE_CODE_MAX_CONTEXT_TOKENS (via env or Claude Code settings), where it's a positive number.
+ *  Since 2.1.326 it sets the context window of a `claude-` model ID Claude Code doesn't recognize */
+export function maxContextTokens(): number | undefined {
+  const settings = readGlobalSettings()
+  const raw = process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+    ?? (settings?.env as Record<string, unknown>)?.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+  const tokens = Number(raw)
+  return Number.isInteger(tokens) && tokens > 0 ? tokens : undefined
+}
+
 // ─── Prompt ───────────────────────────────────────────────────────────────────
 
 export async function promptHookSetupIfNeeded(_context: vscode.ExtensionContext): Promise<void> {
