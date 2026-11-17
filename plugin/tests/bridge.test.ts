@@ -3,6 +3,11 @@ import { expect, mock, test } from 'claude-code/testing'
 
 const WORKSPACE = '/work/app'
 
+/** A post's JSON body. The mod sends text; since 2.1.326 a body may also be `{ base64 }` */
+function bodyOf(body: string | { readonly base64: string } | undefined): Record<string, unknown> {
+  return JSON.parse(typeof body === 'string' ? body : '{}')
+}
+
 /** One Agent Flow watching WORKSPACE (port 4001) and one elsewhere (4002); answers what flush and discovery call */
 function agentFlow(on: On, env: Record<string, string> = {}, files: Record<string, string> = {}) {
   const clock = mock.clock(on)
@@ -25,7 +30,7 @@ function agentFlow(on: On, env: Record<string, string> = {}, files: Record<strin
 
   const posts: { url: string; body: Record<string, unknown> }[] = []
   on('http.fetch', (_$, e) => {
-    posts.push({ url: e.url, body: JSON.parse(e.init?.body ?? '{}') })
+    posts.push({ url: e.url, body: bodyOf(e.init?.body) })
     return { value: { status: 200, ok: true, headers: {}, text: '' } }
   })
   return { clock, posts }
@@ -86,7 +91,7 @@ test('an Agent Flow that never answers does not stall the events after it', asyn
   let calls = 0
   on('http.fetch', (_$, e) => {
     if (calls++ === 0) return new Promise(() => {}) // the first instance hangs
-    answered.push(JSON.parse(e.init?.body ?? '{}').hook_event_name)
+    answered.push(String(bodyOf(e.init?.body).hook_event_name))
     return { value: { status: 200, ok: true, headers: {}, text: '' } }
   })
   on('tool.call', () => ({ result: { stdout: '' } as never, text: '' } as never))

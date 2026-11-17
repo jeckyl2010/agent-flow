@@ -7,8 +7,8 @@ import {
   type TimelineEntry,
 } from '@/lib/agent-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
-import { canonicalModelId } from '@/lib/utils'
-import { TOOL_CARD_W, TOOL_CARD_H, FORCE, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED } from '@/lib/canvas-constants'
+import { contextWindowSize } from '@/lib/context-window'
+import { TOOL_CARD_W, TOOL_CARD_H, FORCE, TOOL_SLOT, BUBBLE_VISIBLE_S, ANIM_SPEED } from '@/lib/canvas-constants'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation } from 'd3-force'
 
 import type { SimulationState, ForceNode, ForceLink, UseAgentSimulationOptions } from './simulation/types'
@@ -21,7 +21,7 @@ import { snapVisualState } from './simulation/snap-visual-state'
 const UI_THROTTLE_MS = 250
 
 export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
-  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false } = options
+  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, maxContextTokens } = options
   const internalFilterRef = useRef(sessionFilter)
   internalFilterRef.current = sessionFilter
   const sessionFilterRef = externalFilterRef ?? internalFilterRef
@@ -153,13 +153,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   }, [])
 
   const getContextWindowSize = useCallback((modelId?: string): number => {
-    if (!modelId) return disable1MContext ? DEFAULT_CONTEXT_SIZE : FALLBACK_CONTEXT_SIZE
-    const id = canonicalModelId(modelId)
-    for (const { pattern, size } of MODEL_FAMILY_CONTEXT) {
-      if (pattern.test(id)) return disable1MContext ? Math.min(size, DEFAULT_CONTEXT_SIZE) : size
-    }
-    return DEFAULT_CONTEXT_SIZE
-  }, [disable1MContext])
+    return contextWindowSize(modelId, { disable1MContext, maxContextTokens })
+  }, [disable1MContext, maxContextTokens])
 
   const processEventWithContext = useCallback((event: SimulationEvent, prev: SimulationState): SimulationState => {
     const ctx: ProcessEventContext = {

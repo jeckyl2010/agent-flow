@@ -107,6 +107,15 @@ Some things neither source states. These are the places to look first when Claud
   transcript records the speed; the mod API's `TurnUsage` doesn't declare it, so a mod-fed
   subagent is priced fast only where the engine passes the API's field on. The session's total
   comes from Claude Code's own cost, which counts it either way.
+- **The context window** without the mod: from the model's family (`context-window.ts`). An ID
+  Claude Code doesn't recognize, such as a gateway's `claude-sonnet-latest`, gets 1M as Claude
+  Code assumes since 2.1.326 (200K before), and `CLAUDE_CODE_MAX_CONTEXT_TOKENS` sets it for one
+  that starts with `claude-`; `CLAUDE_CODE_DISABLE_1M_CONTEXT` caps every window at 200K. Both
+  are read from the environment or the user's settings by the VS Code extension only. With the
+  mod, `SessionMeasure` gives the real window.
+- **A subagent's compaction** without the mod: from its own transcript, after the fact. Since
+  2.1.326 a subagent that compacts also fires `SessionStart` with its `agent_id`, which the host
+  ignores rather than take for the session starting.
 - **Token counts of messages and tool results**: estimated from their text (`token-estimator.ts`).
 - **Subagent names** without the mod: from the Agent call's description, or the transcript's
   `.meta.json` sidecar.

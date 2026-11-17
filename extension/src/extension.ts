@@ -4,7 +4,7 @@ import { JsonlEventSource } from './event-source'
 import { WebviewToExtensionMessage } from './protocol'
 import { startClaudeRuntime } from './claude-runtime'
 import { startCodexRuntime } from './codex-runtime'
-import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext } from './hooks-config'
+import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext, maxContextTokens } from './hooks-config'
 import { createLogger } from './logger'
 import type { AgentRuntime, AgentRuntimeMode } from './session-runtime'
 
@@ -178,9 +178,13 @@ function wirePanel(panel: VisualizerPanel): void {
         panel.markReady()
         // Clear stale webview state from any previous panel instance
         panel.postMessage({ type: 'reset', reason: 'panel-reopened' })
-        // Send environment-derived config (e.g. CLAUDE_CODE_DISABLE_1M_CONTEXT)
-        if (isDisable1MContext()) {
-          panel.postMessage({ type: 'config', config: { disable1MContext: true } })
+        // Send environment-derived config (CLAUDE_CODE_DISABLE_1M_CONTEXT, CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+        const maxTokens = maxContextTokens()
+        if (isDisable1MContext() || maxTokens) {
+          panel.postMessage({ type: 'config', config: {
+            ...(isDisable1MContext() ? { disable1MContext: true } : {}),
+            ...(maxTokens ? { maxContextTokens: maxTokens } : {}),
+          } })
         }
         // Report current connection status and replay active sessions
         // Send session list FIRST so the webview selects a session
